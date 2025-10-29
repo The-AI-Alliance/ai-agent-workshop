@@ -1,3 +1,4 @@
 mcp_agent.secrets.yaml
 .venv/
+.DS_Store
 
