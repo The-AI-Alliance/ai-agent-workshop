@@ -1,0 +1,11 @@
+[project]
+name = "mcp-calendar-service"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=2.13.0.2",
+    "openai>=2.6.1",
+    "starlette>=0.37.2",
+]
