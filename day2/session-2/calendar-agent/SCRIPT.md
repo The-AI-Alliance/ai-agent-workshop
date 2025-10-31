@@ -29,6 +29,8 @@ Yes. We can use both, but both are good for different things.
 
 ## Phase 1 : Manual Calendar Invites
 
+<img width="1799" height="999" alt="image" src="https://github.com/user-attachments/assets/40935204-85a2-41b1-91c8-f25663614ac7" />
+
 Let's now run the client. Using conda ( or whatever environment you want ), install the `requirements.txt` file and run the following command: 
 
 `streamlit run main.py`
@@ -45,6 +47,8 @@ Let's do that now. Let's update the preferences to match what you want. Save the
 Let's manually book a calendar invite. Now, talk to the person to the right of you, and talk to the person to the left of you. Schedule some time together on your calendars. 
 
 ## Phase 2 : MCP Inspection And Evaluation
+
+<img width="3592" height="1984" alt="image" src="https://github.com/user-attachments/assets/3626caa3-0cbe-4293-864a-0e5e38f74af3" />
 
 OK. So now, let's do something fun. Let's run the `MCP-Inspector` tool and see what we have on the mcp side. Download 
 
@@ -71,6 +75,8 @@ OK, so we have a very limited MCP client working. Now, how do you think this is 
 ~Open it up to the room for discussion 
 
 ## Phase 3 : Register in the MCP Gateway
+<img width="1799" height="999" alt="image" src="https://github.com/user-attachments/assets/b36a0c18-e14a-49e7-9f60-7b362a20fddb" />
+
 
 Who knows what an MCP Gateway is? OK, so a Gateway can act as a registry, but it's not only a registry. It's also a proxy. 
 In this case, we'll be using it as BOTH. 
