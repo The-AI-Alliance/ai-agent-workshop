@@ -43,7 +43,14 @@ if 'calendar' not in st.session_state or not isinstance(st.session_state.calenda
     if saved_events:
         print(f"🔍 DEBUG: Loading {len(saved_events)} events from database")
         for event in saved_events:
+            # Ensure status is properly set (convert string to enum if needed)
+            if isinstance(event.status, str) and hasattr(EventStatus, event.status.upper()):
+                try:
+                    event.status = EventStatus[event.status.upper()]
+                except:
+                    pass
             st.session_state.calendar.events[event.event_id] = event
+        print(f"🔍 DEBUG: Restored {len(st.session_state.calendar.events)} events to calendar")
     else:
         print("🔍 DEBUG: No saved events found in database")
 

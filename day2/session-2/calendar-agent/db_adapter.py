@@ -157,27 +157,36 @@ class CalendarDBAdapter:
         """Convert a database row to an Event object."""
         try:
             # Parse status (try enum first, fallback to string)
-            status_value = row['status']
+            status_value = str(row['status']).strip()
             status = status_value  # Default to string
             
             if event_status_class:
                 # Try to convert string status back to enum
+                status_found = False
+                
+                # First try: direct lookup by name (PROPOSED, ACCEPTED, etc.)
                 try:
-                    # First try direct lookup by name
                     status = event_status_class[status_value.upper()]
-                except (KeyError, AttributeError):
-                    # If not found, try getting by value
-                    status_found = False
+                    status_found = True
+                except (KeyError, AttributeError, TypeError):
+                    pass
+                
+                # Second try: lookup by value
+                if not status_found:
                     for status_enum in event_status_class:
                         enum_value = status_enum.value if hasattr(status_enum, 'value') else str(status_enum)
-                        if enum_value == status_value or str(enum_value).lower() == str(status_value).lower():
+                        enum_str = str(enum_value).lower()
+                        status_str = str(status_value).lower()
+                        
+                        if enum_str == status_str or enum_value == status_value:
                             status = status_enum
                             status_found = True
                             break
-                    
-                    # If still not found, keep as string (will be handled by get_status_value)
-                    if not status_found:
-                        status = status_value
+                
+                # If still not found, keep as string (Event model should handle it)
+                if not status_found:
+                    print(f"🔍 DEBUG: Could not convert status '{status_value}' to enum, keeping as string")
+                    status = status_value
             
             return event_class(
                 event_id=row['event_id'],
