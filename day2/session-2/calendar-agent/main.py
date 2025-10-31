@@ -15,6 +15,13 @@ Event = calendar_module.Event
 EventStatus = calendar_module.EventStatus
 BookingPreferences = calendar_module.BookingPreferences
 
+# Import database adapter
+db_spec = importlib.util.spec_from_file_location("db_adapter", os.path.join(os.path.dirname(__file__), "db_adapter.py"))
+db_adapter_module = importlib.util.module_from_spec(db_spec)
+db_spec.loader.exec_module(db_adapter_module)
+
+CalendarDBAdapter = db_adapter_module.CalendarDBAdapter
+
 # Page config
 st.set_page_config(
     page_title="Calendar Agent",
@@ -22,15 +29,37 @@ st.set_page_config(
     layout="wide"
 )
 
+# Initialize database adapter
+DB_PATH = "calendar_agent.db"
+db_adapter = CalendarDBAdapter(db_path=DB_PATH)
+
 # Initialize session state
 if 'calendar' not in st.session_state or not isinstance(st.session_state.calendar, Calendar):
+    # Try to load from database
+    saved_events = db_adapter.load_all_events(Event, EventStatus)
     st.session_state.calendar = Calendar(owner_agent_id="agent-alpha")
+    
+    # Restore events from database
+    if saved_events:
+        print(f"🔍 DEBUG: Loading {len(saved_events)} events from database")
+        for event in saved_events:
+            st.session_state.calendar.events[event.event_id] = event
+    else:
+        print("🔍 DEBUG: No saved events found in database")
 
 if 'events_data' not in st.session_state:
     st.session_state.events_data = []
 
 if 'preferences' not in st.session_state or not isinstance(st.session_state.preferences, BookingPreferences):
-    st.session_state.preferences = BookingPreferences()
+    # Try to load from database
+    saved_preferences = db_adapter.load_preferences(BookingPreferences)
+    if saved_preferences:
+        st.session_state.preferences = saved_preferences
+        print("🔍 DEBUG: Loaded preferences from database")
+    else:
+        st.session_state.preferences = BookingPreferences()
+        # Save default preferences
+        db_adapter.save_preferences(st.session_state.preferences)
 
 if 'calendar_refresh_key' not in st.session_state:
     st.session_state.calendar_refresh_key = 0
@@ -56,10 +85,12 @@ def update_events_data():
     # Ensure we have a valid calendar object
     if 'calendar' not in st.session_state:
         st.session_state.events_data = []
+        print("🔍 DEBUG: update_events_data() - No calendar in session state")
         return
     
     if not isinstance(st.session_state.calendar, Calendar):
         st.session_state.events_data = []
+        print(f"🔍 DEBUG: update_events_data() - Calendar is wrong type: {type(st.session_state.calendar)}")
         return
     
     calendar = st.session_state.calendar
@@ -67,6 +98,8 @@ def update_events_data():
     # Get all events from the calendar object
     events = []
     all_calendar_events = calendar.get_all_events()
+    print(f"🔍 DEBUG: update_events_data() - Found {len(all_calendar_events)} events in calendar object")
+    print(f"🔍 DEBUG: update_events_data() - Calendar.events dict has {len(calendar.events)} items")
     
     # Debug: Log how many events we're processing
     if len(all_calendar_events) > 0:
@@ -111,9 +144,12 @@ def update_events_data():
             }
         }
         events.append(event_data)
+        print(f"🔍 DEBUG: Added event to UI data: {event.event_id} - {event.partner_agent_id} at {event.time.isoformat()}")
     
     # Update session state with synchronized events
     st.session_state.events_data = events
+    print(f"🔍 DEBUG: update_events_data() - Total events prepared for UI: {len(events)}")
+    print(f"🔍 DEBUG: Events data structure: {[e.get('title', 'No title') for e in events]}")
     
     # Verify sync: Check that counts match
     calendar_event_count = len(calendar.events)
@@ -203,6 +239,10 @@ def booking_page():
                     
                     # Refresh calendar to show new event
                     refresh_calendar()
+                    
+                    # Save to database
+                    db_adapter.save_event(event)
+                    print(f"🔍 DEBUG: Saved event {event.event_id} from booking page to database")
                     
                     # Display event details
                     st.info(f"""
@@ -472,7 +512,7 @@ Examples:
                     blocked_partners_list = [p.strip() for p in blocked_partners_str.split("\n") if p.strip()]
                     
                     # Update preferences
-                    st.session_state.preferences = BookingPreferences(
+                    new_preferences = BookingPreferences(
                         preferred_start_hour=start_hour,
                         preferred_end_hour=end_hour,
                         preferred_days=preferred_days if preferred_days else ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
@@ -492,6 +532,12 @@ Examples:
                         allow_back_to_back=allow_back_to_back,
                         instructions=instructions_text.strip()
                     )
+                    st.session_state.preferences = new_preferences
+                    
+                    # Save to database
+                    db_adapter.save_preferences(new_preferences)
+                    print(f"🔍 DEBUG: Saved preferences to database")
+                    
                     st.success("✅ Preferences saved!")
                     st.rerun()
         
@@ -651,8 +697,22 @@ Examples:
                                     success_msg += " (matches preferences)"
                                 st.success(success_msg)
                                 
+                                # DEBUG: Print calendar state before refresh
+                                print(f"\n🔍 DEBUG: BEFORE refresh_calendar() - Event {event.event_id} added")
+                                print(f"🔍 DEBUG: Calendar.events keys: {list(verify_calendar.events.keys())}")
+                                print(f"🔍 DEBUG: Calendar.get_all_events() count: {all_events_count}")
+                                
                                 # Force calendar refresh
                                 refresh_calendar()
+                                
+                                # Save to database
+                                db_adapter.save_event(event)
+                                print(f"🔍 DEBUG: Saved event {event.event_id} to database")
+                                
+                                # DEBUG: Print calendar state after refresh
+                                print(f"🔍 DEBUG: AFTER refresh_calendar() - UI events_data count: {len(st.session_state.events_data)}")
+                                print(f"🔍 DEBUG: UI events_data: {[e.get('title', 'No title') for e in st.session_state.events_data]}")
+                                print(f"🔍 DEBUG: Calendar being rendered with {len(st.session_state.events_data)} events\n")
                                 
                                 # Rerun to show updated calendar
                                 st.rerun()
@@ -687,6 +747,9 @@ Examples:
             if st.button("Remove Event", type="secondary"):
                 event_id = event_options[selected_event_key]
                 if st.session_state.calendar.remove_event(event_id):
+                    # Save to database
+                    db_adapter.delete_event(event_id)
+                    print(f"🔍 DEBUG: Deleted event {event_id} from database")
                     st.success(f"✅ Event {event_id} removed")
                     refresh_calendar()
                     st.rerun()
@@ -761,6 +824,13 @@ Examples:
             else:
                 st.info("No events data available")
     
+    # DEBUG: Print what we're about to render
+    print(f"\n🔍 DEBUG: Rendering calendar with {len(st.session_state.events_data)} events")
+    print(f"🔍 DEBUG: Calendar key: {calendar_key}")
+    print(f"🔍 DEBUG: Events being rendered:")
+    for idx, event_data in enumerate(st.session_state.events_data):
+        print(f"  [{idx+1}] {event_data.get('title', 'No title')} - Start: {event_data.get('start', 'N/A')}, End: {event_data.get('end', 'N/A')}")
+    
     # Display calendar
     calendar_result = st_calendar(
         events=st.session_state.events_data,
@@ -781,6 +851,8 @@ Examples:
         """,
         key=calendar_key
     )
+    
+    print(f"🔍 DEBUG: Calendar component rendered, result type: {type(calendar_result)}")
     
     # calendar_result is a dict containing interaction data when events are clicked
     # This is normal behavior - no action needed unless there's an error
@@ -821,28 +893,36 @@ Examples:
                     
                     with col1:
                         if st.button("Accept", key=f"accept_{event_id}"):
-                            if st.session_state.calendar.accept_event(event_id):
+                            updated_event = st.session_state.calendar.accept_event(event_id)
+                            if updated_event:
+                                db_adapter.save_event(updated_event)
                                 st.success("Event accepted")
                                 refresh_calendar()
                                 st.rerun()
                     
                     with col2:
                         if st.button("Confirm", key=f"confirm_{event_id}"):
-                            if st.session_state.calendar.confirm_event(event_id):
+                            updated_event = st.session_state.calendar.confirm_event(event_id)
+                            if updated_event:
+                                db_adapter.save_event(updated_event)
                                 st.success("Event confirmed")
                                 refresh_calendar()
                                 st.rerun()
                     
                     with col3:
                         if st.button("Mark Booked", key=f"booked_{event_id}"):
-                            if st.session_state.calendar.mark_booked(event_id):
+                            updated_event = st.session_state.calendar.mark_booked(event_id)
+                            if updated_event:
+                                db_adapter.save_event(updated_event)
                                 st.success("Event marked as booked")
                                 refresh_calendar()
                                 st.rerun()
                     
                     with col4:
                         if st.button("Mark Failed", key=f"failed_{event_id}"):
-                            if st.session_state.calendar.mark_failed(event_id):
+                            updated_event = st.session_state.calendar.mark_failed(event_id)
+                            if updated_event:
+                                db_adapter.save_event(updated_event)
                                 st.success("Event marked as failed")
                                 refresh_calendar()
                                 st.rerun()
@@ -900,6 +980,7 @@ Examples:
                 with col2:
                     if st.button("Remove", key=f"remove_{event.event_id}"):
                         if st.session_state.calendar.remove_event(event.event_id):
+                            db_adapter.delete_event(event.event_id)
                             st.success("Event removed")
                             refresh_calendar()
                             st.rerun()

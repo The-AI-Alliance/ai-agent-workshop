@@ -215,7 +215,11 @@ class Calendar:
         """Count events by status."""
         counts = {}
         for event in self.events.values():
-            status = event.status.value
+            # Handle both enum and string status values
+            if hasattr(event.status, 'value'):
+                status = event.status.value
+            else:
+                status = str(event.status)
             counts[status] = counts.get(status, 0) + 1
         return counts
     
