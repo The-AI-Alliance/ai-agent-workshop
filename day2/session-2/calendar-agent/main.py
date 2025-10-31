@@ -4,6 +4,8 @@ from streamlit_calendar import calendar as st_calendar
 import sys
 import os
 import importlib.util
+import threading
+from pathlib import Path
 
 # Import local calendar module explicitly to avoid conflicts with built-in calendar
 spec = importlib.util.spec_from_file_location("calendar_module", os.path.join(os.path.dirname(__file__), "calendar_module.py"))
@@ -21,6 +23,11 @@ db_adapter_module = importlib.util.module_from_spec(db_spec)
 db_spec.loader.exec_module(db_adapter_module)
 
 CalendarDBAdapter = db_adapter_module.CalendarDBAdapter
+
+# Import MCP server
+server_spec = importlib.util.spec_from_file_location("server", os.path.join(os.path.dirname(__file__), "server.py"))
+server_module = importlib.util.module_from_spec(server_spec)
+server_spec.loader.exec_module(server_module)
 
 # Page config
 st.set_page_config(
@@ -280,6 +287,20 @@ def booking_page():
 
 
 def main():
+    # Display MCP server status and URL
+    if st.session_state.get('mcp_server_started', False):
+        mcp_url = st.session_state.get('mcp_server_url', 'Unknown')
+        st.sidebar.success("🟢 MCP Server Running", icon="📡")
+        
+        # Show MCP server URL in an expander
+        with st.sidebar.expander("📡 MCP Server Info", expanded=False):
+            st.write("**Server URL:**")
+            st.code(mcp_url, language=None)
+            if st.button("📋 Copy URL", key="copy_mcp_url"):
+                st.write("💾 URL copied to clipboard!")
+    else:
+        st.sidebar.info("⚪ MCP Server Not Started", icon="📡")
+    
     # Check if this is a booking page request
     query_params = st.query_params
     
@@ -994,6 +1015,30 @@ Examples:
     else:
         st.info("No events found. Add an event using the sidebar form.")
 
+
+# Initialize MCP server in background thread (only once per Streamlit session)
+if 'mcp_server_started' not in st.session_state:
+    try:
+        # Default MCP server configuration
+        MCP_HOST = "localhost"
+        MCP_PORT = 8000
+        MCP_URL = f"http://{MCP_HOST}:{MCP_PORT}/sse"
+        
+        def run_server():
+            try:
+                server_module.run_mcp_server(host=MCP_HOST, port=MCP_PORT)
+            except Exception as e:
+                print(f"⚠️ MCP Server error: {e}")
+        
+        mcp_thread = threading.Thread(target=run_server, daemon=True)
+        mcp_thread.start()
+        st.session_state.mcp_server_started = True
+        st.session_state.mcp_server_url = MCP_URL
+        print(f"🚀 MCP Server started in background thread at {MCP_URL}")
+    except Exception as e:
+        print(f"⚠️ Failed to start MCP server: {e}")
+        st.session_state.mcp_server_started = False
+        st.session_state.mcp_server_url = None
 
 if __name__ == "__main__":
     main()
