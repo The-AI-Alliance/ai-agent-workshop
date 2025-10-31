@@ -1,7 +1,7 @@
 # Match conference attendees to AI Alliance members
 
 This agent uses summarized AI Alliance member data, and attendee data
-to find syngergies and then describes those synergies.
+to find syngergies and then describe and score those synergies.
 
 
 ## Prerequisites
@@ -20,8 +20,8 @@ to find syngergies and then describes those synergies.
 
 ```bash
 cd <your-project-directory>
-git clone git@github.com:agentic-profile/ai-summit-2025-nov-workshops.git
-cd ai-summit-2025-nov-workshops
+git clone git@github.com:The-AI-Alliance/ai-agent-workshop.git
+cd ai-agent-workshop
 cd match-attendees
 ```
 
@@ -43,10 +43,17 @@ uv add openai
 - Visit [Venture Agent/Northstar Worksheet](https://example.agenticprofile.ai/agents/venture)
 - Fill in as much detail as you'd like
 - Scroll down to the Markdown Summary section and "Copy Markdown"
-- Paste that text into the northstar.md file in this directory
+- Paste that text into the my-summary.md file in this directory
 
-5. Find your matches
+5. Copy the ../harvest-ai-alliance-members/data/member-summaries to the data directory for this project
 
 ```bash
-uv run find-matches.py
+cd <match-attendees directory>
+cp -R ../harvest-ai-alliance-members/data/member-summaries data/
+```
+
+6. Find your matches!
+
+```bash
+uv run main.py
 ```

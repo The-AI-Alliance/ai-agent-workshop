@@ -1,0 +1,9 @@
+Here’s a concise profile of BrightQuery (BQ) and BQ AI, based on its website.
+
+BrightQuery is a data and AI company focused on “Factual AI,” providing verified, government-filing–derived intelligence and platforms that fuse structured and unstructured data to support decisions in finance, government policy, defense, credit/underwriting, KYB/compliance, and sales/marketing. Founded in 2019 (BQ AI launched in 2023) and headquartered in Irvine, CA, it offers Agentic Hybrid RAG, Predictive Hybrid RAG, and Neuro‑Symbolic Multi‑Agent platforms, plus “Factual Chat” for grounded, retrieval‑augmented analytics; data products include firmographics, financials, beneficial owners, and an equity data feed. The company emphasizes accuracy and bias mitigation through a proprietary imputation methodology validated via IRS back‑testing, monthly updates, and breadth from IRS, Department of Labor, and 80k+ state/local sources; coverage spans all U.S. companies (e.g., ~5K public and ~70M private firms) across tens of millions of entities, establishments, and officers. Its datasets are reportedly used by 300k+ investment professionals, 200k+ bankers, and 50k+ compliance officers; BrightQuery participates in AI/data initiatives such as the AI Alliance’s Open Trusted Data Initiative and the UN Statistics Division network.
+
+Key data points
+- Offerings: Agentic Hybrid RAG, Predictive Hybrid RAG, Neuro‑Symbolic Multi‑Agent platforms; Factual Chat; firmographics/financials/beneficial owners/equity data feed.
+- Differentiators: Verified government-sourced data, proprietary imputation validated with IRS back‑testing, monthly updates, bias mitigation, broad coverage across 80k+ jurisdictions.
+- Scale/adoption: Data used by 300k+ investment pros, 200k+ bankers, 50k+ compliance officers; coverage includes ~5K public and ~70M private U.S. firms.
+- HQ: 200 Spectrum Center Drive, Suite 300, Irvine, CA 92618; founded 2019 (BQ AI launched 2023).

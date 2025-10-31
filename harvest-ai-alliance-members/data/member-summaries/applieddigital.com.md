@@ -1,0 +1,9 @@
+Here’s a concise summary of Applied Digital, based on its website and investor press releases.
+
+Applied Digital designs, builds, and operates purpose-built, high-density data centers and a turnkey GPU-as-a-Service cloud for AI and high-performance computing, positioning itself as “Different by Design.” Its Data Center Solutions are engineered for AI factories with advanced liquid cooling, high power density, InfiniBand networking, and sites strategically located near stranded renewable energy to lower PUE and carbon footprint; Applied Digital Cloud delivers managed GPU compute for AI/ML and rendering. The company reports 480+ MW constructed in 18 months, 400 MW under active construction, and a 1.4+ GW future site pipeline; in Oct 2025 it announced an approximate $5B, ~15-year lease for 200 MW at its Polaris Forge 2 campus in North Dakota, bringing total leased capacity with two global hyperscalers across its ND campuses to 600 MW (projected PUE ~1.18, near‑zero water consumption). Notable relationships and recognition include CoreWeave capacity agreements, a $5.0B AI infrastructure partnership with Macquarie Asset Management, collaborations/testimonials with NVIDIA and Zededa, and Datacloud’s “Best Data Center in the Americas 2025.” The company is headquartered in Dallas, Texas (3811 Turtle Creek Blvd., Suite 2100, Dallas, TX 75219) and was founded in 2021.
+
+Key data points
+- Focus and offerings: AI/HPC data centers (AI factories) and Applied Digital Cloud (GPU‑as‑a‑Service).
+- Scale: 480+ MW built in 18 months; 400 MW under construction; 1.4+ GW pipeline; 600 MW leased with two hyperscalers; $5B, 200 MW lease at Polaris Forge 2 (Oct 2025).
+- Distinctives: advanced liquid cooling, high power density, InfiniBand networking, renewable‑adjacent siting, low PUE (~1.18) with near‑zero water consumption at PF2.
+- HQ and status: Dallas, TX; founded 2021; NASDAQ: APLD; recognized as Datacloud’s Best Data Center in the Americas 2025.

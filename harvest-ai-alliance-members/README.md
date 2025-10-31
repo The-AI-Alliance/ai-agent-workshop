@@ -22,8 +22,8 @@ The summaries are stored in the local filesystem.
 
 ```bash
 cd <your-project-directory>
-git clone git@github.com:agentic-profile/ai-summit-2025-nov-workshops.git
-cd ai-summit-2025-nov-workshops
+git clone git@github.com:The-AI-Alliance/ai-agent-workshop.git
+cd ai-agent-workshop
 cd harvest-ai-alliance-members
 ```
 
@@ -43,5 +43,5 @@ uv add openai
 4. Run harvest
 
 ```bash
-uv run harvest.py
+uv run main.py
 ```
