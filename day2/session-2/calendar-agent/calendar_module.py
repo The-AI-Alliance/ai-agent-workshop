@@ -25,11 +25,12 @@ class Event(pydantic.BaseModel):
     created_at: datetime = pydantic.Field(default_factory=datetime.utcnow)
     updated_at: datetime = pydantic.Field(default_factory=datetime.utcnow)
     
-    class Config:
-        use_enum_values = True
-        json_encoders = {
+    model_config = pydantic.ConfigDict(
+        use_enum_values=True,
+        json_encoders={
             datetime: lambda v: v.isoformat()
         }
+    )
     
     def get_end_time(self) -> datetime:
         """Calculate the end time of the event based on duration."""
@@ -265,10 +266,11 @@ class BookingPreferences(pydantic.BaseModel):
     # Natural language instructions
     instructions: str = ""  # Human-readable instructions for how the agent should behave
     
-    class Config:
-        json_encoders = {
+    model_config = pydantic.ConfigDict(
+        json_encoders={
             datetime: lambda v: v.isoformat()
         }
+    )
     
     def is_preferred_time(self, event_time: datetime) -> bool:
         """Check if a time matches preferred scheduling preferences."""

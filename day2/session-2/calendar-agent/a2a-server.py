@@ -6,38 +6,43 @@ allowing other agents to interact with the calendar system for scheduling meetin
 Based on the A2A Protocol specification: https://a2a-protocol.org
 """
 import os
-import sys
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 import importlib.util
 
-# Try to import a2a-sdk
+# Import A2A SDK - no conflict since this file is named a2a-server.py
 A2A_AVAILABLE = False
 A2AServer = None
 AgentCard = None
 Tool = None
 Skill = None
+A2AStarletteApplication = None
+RequestHandler = None
+RESTHandler = None
+uvicorn = None
 
 try:
-    # Try different possible import paths
+    from a2a.types import AgentCard as A2AAgentCard, AgentSkill, AgentCapabilities
+    from a2a.server.apps.rest.fastapi_app import A2ARESTFastAPIApplication as A2AFastAPIApp
+    from a2a.server.request_handlers.request_handler import RequestHandler as A2ARequestHandler
+    
     try:
-        from a2a import A2AServer, AgentCard, Tool, Skill
-        A2A_AVAILABLE = True
+        import uvicorn
     except ImportError:
-        try:
-            from a2a_sdk import A2AServer, AgentCard, Tool, Skill
-            A2A_AVAILABLE = True
-        except ImportError:
-            try:
-                from a2a.server import A2AServer
-                from a2a.models import AgentCard, Tool, Skill
-                A2A_AVAILABLE = True
-            except ImportError:
-                A2A_AVAILABLE = False
+        uvicorn = None
+    
+    A2A_AVAILABLE = True
+    AgentCard = A2AAgentCard
+    A2ARESTFastAPIApplication = A2AFastAPIApp
+    RequestHandler = A2ARequestHandler
+    
+    print("✅ A2A SDK imported successfully")
 except Exception as e:
     A2A_AVAILABLE = False
     print(f"⚠️  A2A SDK import error: {e}")
+    import traceback
+    traceback.print_exc()
 
 if not A2A_AVAILABLE:
     print("⚠️  A2A SDK not installed. Install with: uv add 'a2a-sdk[http-server]'")
@@ -124,24 +129,25 @@ def _is_time_slot_available(calendar: Calendar, start_time: datetime, duration_m
     return True
 
 
-def create_agent_card(host: str = "localhost", port: int = 10000) -> Dict[str, Any]:
+def create_agent_card(host: str = "localhost", port: int = 10000):
     """Create the AgentCard describing this calendar agent's capabilities.
     
     Args:
         host: Host for the A2A server endpoint
         port: Port for the A2A server endpoint
+    
+    Returns:
+        AgentCard object matching the A2A protocol specification
     """
-    endpoint = os.getenv("A2A_ENDPOINT", f"http://{host}:{port}")
-    return {
-        "name": "Calendar Agent",
-        "description": "A calendar management agent that can check availability and book meetings. Provides tools for finding available time slots, requesting bookings, and managing calendar events.",
-        "version": "0.1.0",
-        "endpoint": endpoint,
-        "skills": [
-            {
-                "name": "calendar_booking",
-                "description": "Tools for calendar booking and scheduling",
-                "tools": [
+    if not A2A_AVAILABLE or not AgentCard or not AgentSkill or not AgentCapabilities:
+        raise RuntimeError("A2A SDK not available. Cannot create AgentCard.")
+    
+    url = os.getenv("A2A_ENDPOINT", f"http://{host}:{port}")
+    
+    # Create tools list (tools are stored as part of the skill's additional data)
+    # Note: Tools are not directly part of AgentSkill in A2A spec, but we can store them
+    # in the skill's description or as part of the skill structure
+    tools_data = [
                     {
                         "name": "requestAvailableSlots",
                         "description": "Get available time slots for booking within a date range",
@@ -263,6 +269,27 @@ def create_agent_card(host: str = "localhost", port: int = 10000) -> Dict[str, A
                         }
                     }
                 ]
+    
+    # Return the agent card dictionary
+    return {
+        "name": "Calendar Agent",
+        "description": "A calendar management agent that can check availability and book meetings. Provides tools for finding available time slots, requesting bookings, and managing calendar events.",
+        "version": "0.1.0",
+        "url": url,
+        "defaultInputModes": ["text/plain", "application/json"],
+        "defaultOutputModes": ["text/plain", "application/json"],
+        "capabilities": {
+            "streaming": False,
+            "pushNotifications": False,
+            "stateTransitionHistory": False
+        },
+        "skills": [
+            {
+                "id": "calendar_booking",
+                "name": "calendar_booking",
+                "description": "Tools for calendar booking and scheduling",
+                "tags": ["calendar", "scheduling", "booking", "meetings", "availability"],
+                "tools": tools_data
             }
         ]
     }
@@ -409,97 +436,203 @@ def handle_delete_booking(tool_input: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
+class SimpleCalendarRequestHandler(RequestHandler if RequestHandler else object):
+    """A simple request handler for calendar operations."""
+    
+    def __init__(self):
+        if RequestHandler:
+            super().__init__()
+    
+    async def on_get_task(self, params, context=None):
+        from a2a.utils.errors import ServerError
+        from a2a.types import TaskNotFoundError
+        raise ServerError(error=TaskNotFoundError())
+    
+    async def on_cancel_task(self, params, context=None):
+        from a2a.utils.errors import ServerError
+        from a2a.types import TaskNotFoundError
+        raise ServerError(error=TaskNotFoundError())
+    
+    async def on_message_send(self, params, context=None):
+        # TODO: Implement proper tool handling
+        from a2a.types import Message, Task
+        # For now, return a simple message
+        return Message(content="Calendar agent ready")
+    
+    async def on_message_send_stream(self, params, context=None):
+        from a2a.utils.errors import ServerError
+        from a2a.types import UnsupportedOperationError
+        raise ServerError(error=UnsupportedOperationError())
+    
+    async def on_set_task_push_notification_config(self, params, context=None):
+        return params
+    
+    async def on_get_task_push_notification_config(self, params, context=None):
+        from a2a.utils.errors import ServerError
+        from a2a.types import TaskNotFoundError
+        raise ServerError(error=TaskNotFoundError())
+    
+    async def on_resubscribe_to_task(self, params, context=None):
+        from a2a.utils.errors import ServerError
+        from a2a.types import UnsupportedOperationError
+        raise ServerError(error=UnsupportedOperationError())
+    
+    async def on_delete_task_push_notification_config(self, params, context=None):
+        from a2a.utils.errors import ServerError
+        from a2a.types import TaskNotFoundError
+        raise ServerError(error=TaskNotFoundError())
+    
+    async def on_list_task_push_notification_config(self, params, context=None):
+        return []
+
+
 def create_a2a_server(host: str = "localhost", port: int = 10000) -> Optional[Any]:
-    """Create and configure the A2A server.
+    """Create and configure the A2A server using the actual SDK.
     
     Args:
         host: Host to bind the server to
         port: Port to bind the server to
         
     Returns:
-        Configured A2A server instance, or None if A2A SDK is not available
-        
-    Note:
-        The actual A2A SDK API may vary. This implementation provides a flexible
-        structure that can be adjusted based on the actual a2a-sdk API.
-        See: https://github.com/a2aproject/a2a-python
+        FastAPI app instance configured with A2A, or None if SDK not available
     """
-    if not A2A_AVAILABLE:
+    if not A2A_AVAILABLE or not A2ARESTFastAPIApplication or not AgentCard:
         print("❌ A2A SDK not available. Cannot create A2A server.")
         print("   Install with: uv add 'a2a-sdk[http-server]'")
         print("   Or: pip install 'a2a-sdk[http-server]'")
         return None
     
     try:
-        # Create agent card dictionary with correct endpoint
+        # Create agent card from dict
         agent_card_dict = create_agent_card(host=host, port=port)
         
-        # Try to create agent card object (API may vary)
         try:
-            agent_card = AgentCard(**agent_card_dict) if AgentCard else None
-        except Exception:
-            # If AgentCard constructor fails, use dict directly
-            agent_card = agent_card_dict
-        
-        # Create A2A server (API may vary - adjust as needed)
-        try:
-            # Try different possible constructor signatures
-            if agent_card:
-                server = A2AServer(agent_card=agent_card, host=host, port=port)
-            else:
-                server = A2AServer(agent_card=agent_card_dict, host=host, port=port)
-        except TypeError:
-            # Try alternative constructor signature
+            # Convert dict to AgentCard object
+            agent_card = AgentCard.model_validate(agent_card_dict)
+        except Exception as e:
+            print(f"⚠️  Could not create AgentCard object: {e}")
+            print("   Using dict directly...")
+            # Try to construct from dict fields
             try:
-                server = A2AServer(host=host, port=port)
-                if hasattr(server, 'set_agent_card'):
-                    server.set_agent_card(agent_card if agent_card else agent_card_dict)
-            except Exception as e:
-                raise e
+                agent_card = AgentCard(**agent_card_dict)
+            except Exception:
+                print("❌ Failed to create AgentCard. Check agent card structure.")
+                return None
         
-        # Register tool handlers (API may vary)
-        try:
-            server.register_tool("requestAvailableSlots", handle_request_available_slots)
-            server.register_tool("requestBooking", handle_request_booking)
-            server.register_tool("deleteBooking", handle_delete_booking)
-        except AttributeError:
-            # Alternative registration method
-            try:
-                if hasattr(server, 'add_tool'):
-                    server.add_tool("requestAvailableSlots", handle_request_available_slots)
-                    server.add_tool("requestBooking", handle_request_booking)
-                    server.add_tool("deleteBooking", handle_delete_booking)
-                elif hasattr(server, 'tools'):
-                    server.tools["requestAvailableSlots"] = handle_request_available_slots
-                    server.tools["requestBooking"] = handle_request_booking
-                    server.tools["deleteBooking"] = handle_delete_booking
-            except Exception as e:
-                print(f"⚠️  Could not register tools: {e}")
-                print("   Tool registration method may need adjustment based on SDK version")
+        # Create request handler
+        request_handler = SimpleCalendarRequestHandler()
         
-        return server
+        # Create A2A FastAPI application
+        a2a_app = A2ARESTFastAPIApplication(
+            agent_card=agent_card,
+            http_handler=request_handler
+        )
+        
+        # Build the FastAPI app - this automatically adds .well-known/agent-card.json route!
+        fastapi_app = a2a_app.build()
+        
+        # Add health check endpoint
+        @fastapi_app.get("/health")
+        async def health_check():
+            """Health check endpoint for the A2A server."""
+            return {
+                "status": "healthy",
+                "service": "Calendar Agent A2A Server",
+                "agent_card": {
+                    "name": agent_card.name if hasattr(agent_card, 'name') else "Calendar Agent",
+                    "version": agent_card.version if hasattr(agent_card, 'version') else "0.1.0",
+                    "url": agent_card.url if hasattr(agent_card, 'url') else url
+                },
+                "endpoints": {
+                    "health": f"http://{host}:{port}/health",
+                    "agent_card": f"http://{host}:{port}/.well-known/agent-card.json"
+                }
+            }
+        
+        print(f"✅ A2A FastAPI app created")
+        print(f"📍 Agent card will be served at: http://{host}:{port}/.well-known/agent-card.json")
+        print(f"💚 Health check available at: http://{host}:{port}/health")
+        
+        # Store app and config for later
+        fastapi_app._a2a_host = host
+        fastapi_app._a2a_port = port
+        fastapi_app._a2a_agent_card = agent_card
+        
+        return fastapi_app
+        
     except Exception as e:
         print(f"❌ Failed to create A2A server: {e}")
-        print("   Note: The A2A SDK API may differ from what's expected.")
-        print("   Please refer to: https://github.com/a2aproject/a2a-python")
         import traceback
         traceback.print_exc()
         return None
 
 
+def _add_agent_card_route_after_init(server, agent_card_dict, host, port):
+    """Try to add agent card route after server initialization."""
+    try:
+        import time
+        from fastapi import FastAPI
+        from fastapi.responses import JSONResponse
+        
+        # Wait a moment for server to initialize
+        time.sleep(0.1)
+        
+        # Try to find the app again
+        app = None
+        for attr_name in ['app', '_app', 'fastapi_app', 'server', '_server']:
+            if hasattr(server, attr_name):
+                try:
+                    potential_app = getattr(server, attr_name)
+                    if isinstance(potential_app, FastAPI) or hasattr(potential_app, 'get') or hasattr(potential_app, 'router'):
+                        app = potential_app
+                        break
+                except:
+                    pass
+        
+        if app:
+            try:
+                if isinstance(app, FastAPI) or hasattr(app, 'get'):
+                    @app.get("/.well-known/agent-card.json", response_model=None)
+                    async def get_agent_card():
+                        return JSONResponse(content=agent_card_dict)
+                    print(f"✅ Agent card route added at http://{host}:{port}/.well-known/agent-card.json")
+                    return True
+            except Exception as e:
+                print(f"⚠️  Could not add route to app: {e}")
+        
+        return False
+    except Exception as e:
+        return False
+
+
 def run_a2a_server(host: str = "localhost", port: int = 10000):
-    """Run the A2A server.
+    """Run the A2A server using uvicorn.
     
     Args:
         host: Host to bind the server to
         port: Port to bind the server to
     """
-    server = create_a2a_server(host=host, port=port)
-    if server:
+    if not uvicorn:
+        print("❌ uvicorn not available. Cannot run A2A server.")
+        print("   Install with: uv add 'uvicorn' or pip install 'uvicorn'")
+        return
+    
+    fastapi_app = create_a2a_server(host=host, port=port)
+    if fastapi_app:
+        agent_card_name = "Calendar Agent"
+        if hasattr(fastapi_app, '_a2a_agent_card'):
+            agent_card = fastapi_app._a2a_agent_card
+            if hasattr(agent_card, 'name'):
+                agent_card_name = agent_card.name
+        
         print(f"🚀 Starting A2A Calendar Agent Server on http://{host}:{port}")
-        print(f"📋 Agent Card: {server.agent_card.name}")
+        print(f"📋 Agent Card: {agent_card_name}")
+        print(f"📍 Agent Card Endpoint: http://{host}:{port}/.well-known/agent-card.json")
         print(f"🔧 Available tools: requestAvailableSlots, requestBooking, deleteBooking")
-        server.run()
+        print(f"✅ Server will serve agent card at /.well-known/agent-card.json automatically")
+        
+        # Run the FastAPI app with uvicorn
+        uvicorn.run(fastapi_app, host=host, port=port, log_level="info")
     else:
         print("❌ Cannot run A2A server - SDK not available")
 
