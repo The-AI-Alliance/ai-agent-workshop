@@ -95,6 +95,18 @@ class Agent:
         else:
             return f"http://{self.host}:{port}{path}"
     
+    def _is_ngrok_url(self, url: str) -> bool:
+        """
+        Check if a URL is an ngrok URL.
+        
+        Args:
+            url: The URL to check
+            
+        Returns:
+            True if it's an ngrok URL, False otherwise
+        """
+        return url.startswith("https://") and (".ngrok.io" in url or ".ngrok-free.app" in url or ".ngrok.app" in url)
+    
     def _get_or_create_did(self) -> str:
         """Get existing DID or create a new one."""
         if not DID_PEER_AVAILABLE:
@@ -169,13 +181,18 @@ class Agent:
             return "did:peer:error"
     
     def _setup_service_endpoints(self):
-        """Setup A2A and MCP service endpoints in the DID document."""
+        """Setup A2A and MCP service endpoints in the DID document (only if ngrok URLs are available)."""
         if not DID_PEER_AVAILABLE or not self.did:
             return
         
         # Only process did:peer:2 format
         if not self.did.startswith("did:peer:2"):
             print(f"⚠️  Skipping service endpoint setup - DID is not did:peer:2 format: {self.did[:30]}...")
+            return
+        
+        # Only add services to DID if we have ngrok URLs
+        if not self._is_ngrok_url(self.a2a_url) or not self._is_ngrok_url(self.mcp_url):
+            print(f"⚠️  Skipping service endpoint setup - ngrok URLs not available. Using localhost endpoints.")
             return
         
         try:
@@ -204,7 +221,6 @@ class Agent:
             
             # Resolve to get existing services
             current_doc = resolve(self.did)
-            services = current_doc.get("service", [])
             
             # A2A service endpoint
             a2a_service = {
@@ -218,28 +234,43 @@ class Agent:
                 "serviceEndpoint": self.mcp_url
             }
             
-            # Add services if they don't already exist
-            existing_endpoints = [s.get("serviceEndpoint", "") for s in services]
-            if a2a_service["serviceEndpoint"] not in existing_endpoints:
-                services.append(a2a_service)
-            if mcp_service["serviceEndpoint"] not in existing_endpoints:
-                services.append(mcp_service)
+            # Create services list with ONLY the two services we want (A2A and MCP)
+            # Remove any other services and ensure we only have these 2
+            services = [a2a_service, mcp_service]
             
-            # Generate new DID with updated services
-            updated_did = generate(keys=self._keys, services=services)
+            # Check if services have changed by comparing with current document
+            current_services = current_doc.get("service", [])
+            current_a2a = next((s for s in current_services if s.get("type") == "A2A"), None)
+            current_mcp = next((s for s in current_services if s.get("type") == "MCP"), None)
             
-            # Update the DID and save it
-            if updated_did != self.did:
-                self.did = updated_did
-                did_path = Path(__file__).parent / "agent_did.txt"
-                try:
-                    with did_path.open("w", encoding="utf-8") as f:
-                        f.write(self.did)
-                except Exception:
-                    pass
+            # Only regenerate DID if services have changed
+            services_changed = (
+                not current_a2a or 
+                current_a2a.get("serviceEndpoint") != self.a2a_url or
+                not current_mcp or 
+                current_mcp.get("serviceEndpoint") != self.mcp_url or
+                len([s for s in current_services if s.get("type") in ["A2A", "MCP"]]) != 2
+            )
+            
+            if services_changed:
+                # Generate new DID with exactly 2 services (A2A and MCP)
+                updated_did = generate(keys=self._keys, services=services)
                 
-                # Re-resolve the document
-                self.did_doc = resolve(self.did)
+                # Update the DID and save it
+                if updated_did != self.did:
+                    self.did = updated_did
+                    did_path = Path(__file__).parent / "agent_did.txt"
+                    try:
+                        with did_path.open("w", encoding="utf-8") as f:
+                            f.write(self.did)
+                    except Exception:
+                        pass
+                    
+                    # Re-resolve the document
+                    self.did_doc = resolve(self.did)
+                    print(f"✅ Updated DID with service endpoints: A2A={self.a2a_url}, MCP={self.mcp_url}")
+            else:
+                print(f"ℹ️  Service endpoints unchanged, keeping existing DID")
                 
         except Exception as e:
             print(f"⚠️  Error adding service endpoints: {e}")

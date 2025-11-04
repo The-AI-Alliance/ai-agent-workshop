@@ -280,13 +280,170 @@ def booking_page():
         st.rerun()
 
 
+def agentfacts_page():
+    """Streamlit UI page for configuring AgentFacts."""
+    from agentfacts import load_agentfacts, save_agentfacts
+    
+    st.title("📋 AgentFacts Configuration")
+    st.markdown("Configure your agent's metadata and capabilities.")
+    
+    # Get current agent DID
+    agent_did = st.session_state.get('agent_did')
+    if not agent_did:
+        try:
+            from agent import Agent
+            agent = Agent(name="Calendar Agent", host="localhost", a2a_port=8000, mcp_port=8000)
+            agent_did = agent.get_did()
+            st.session_state.agent_did = agent_did
+        except Exception as e:
+            st.error(f"Could not load agent DID: {e}")
+            return
+    
+    # Load current agent facts
+    facts = load_agentfacts()
+    
+    # Update agent_id with DID if not set or different
+    if facts.get("core_identity", {}).get("agent_id") != agent_did:
+        facts.setdefault("core_identity", {})["agent_id"] = agent_did
+    
+    # Core Identity Section
+    st.header("🔐 Core Identity")
+    with st.expander("Core Identity", expanded=True):
+        facts["core_identity"]["agent_id"] = st.text_input(
+            "Agent ID (DID)",
+            value=facts.get("core_identity", {}).get("agent_id", agent_did),
+            disabled=True,
+            help="This is your agent's DID and cannot be changed"
+        )
+        facts["core_identity"]["name"] = st.text_input(
+            "Agent Name",
+            value=facts.get("core_identity", {}).get("name", "Calendar Agent")
+        )
+        facts["core_identity"]["version"] = st.text_input(
+            "Version",
+            value=facts.get("core_identity", {}).get("version", "1.0.0")
+        )
+        facts["core_identity"]["ttl"] = st.number_input(
+            "TTL (seconds)",
+            value=facts.get("core_identity", {}).get("ttl", 3600),
+            min_value=60
+        )
+    
+    # Baseline Model Section
+    st.header("🤖 Baseline Model")
+    with st.expander("Baseline Model", expanded=False):
+        baseline = facts.setdefault("baseline_model", {})
+        baseline["foundation_model"] = st.text_input(
+            "Foundation Model",
+            value=baseline.get("foundation_model", "GPT-4")
+        )
+        baseline["model_version"] = st.text_input(
+            "Model Version",
+            value=baseline.get("model_version", "gpt-4")
+        )
+        baseline["model_provider"] = st.text_input(
+            "Model Provider",
+            value=baseline.get("model_provider", "OpenAI")
+        )
+        
+        training_sources = baseline.get("training_data_sources", [])
+        if st.button("Add Training Data Source", key="add_training"):
+            training_sources.append("")
+        for i, source in enumerate(training_sources):
+            training_sources[i] = st.text_input(
+                f"Training Data Source {i+1}",
+                value=source,
+                key=f"training_{i}"
+            )
+        baseline["training_data_sources"] = [s for s in training_sources if s]
+    
+    # Classification Section
+    st.header("📊 Classification")
+    with st.expander("Classification", expanded=False):
+        classification = facts.setdefault("classification", {})
+        classification["agent_type"] = st.selectbox(
+            "Agent Type",
+            ["assistant", "autonomous", "tool", "workflow"],
+            index=["assistant", "autonomous", "tool", "workflow"].index(classification.get("agent_type", "assistant"))
+        )
+        classification["operational_level"] = st.selectbox(
+            "Operational Level",
+            ["ambient", "supervised", "autonomous"],
+            index=["ambient", "supervised", "autonomous"].index(classification.get("operational_level", "supervised"))
+        )
+        classification["stakeholder_context"] = st.selectbox(
+            "Stakeholder Context",
+            ["enterprise", "consumer", "government"],
+            index=["enterprise", "consumer", "government"].index(classification.get("stakeholder_context", "consumer"))
+        )
+        classification["deployment_scope"] = st.selectbox(
+            "Deployment Scope",
+            ["internal", "external", "hybrid"],
+            index=["internal", "external", "hybrid"].index(classification.get("deployment_scope", "external"))
+        )
+        classification["interaction_mode"] = st.selectbox(
+            "Interaction Mode",
+            ["synchronous", "asynchronous", "batch"],
+            index=["synchronous", "asynchronous", "batch"].index(classification.get("interaction_mode", "synchronous"))
+        )
+    
+    # Capabilities Section
+    st.header("⚡ Capabilities")
+    with st.expander("Capabilities", expanded=False):
+        capabilities = facts.setdefault("capabilities", {})
+        
+        tool_calling = capabilities.get("tool_calling", ["MCP", "function_calls"])
+        tool_calling_str = st.text_input(
+            "Tool Calling (comma-separated)",
+            value=", ".join(tool_calling)
+        )
+        capabilities["tool_calling"] = [t.strip() for t in tool_calling_str.split(",") if t.strip()]
+        
+        interface_types = capabilities.get("interface_types", ["REST API", "MCP"])
+        interface_str = st.text_input(
+            "Interface Types (comma-separated)",
+            value=", ".join(interface_types)
+        )
+        capabilities["interface_types"] = [i.strip() for i in interface_str.split(",") if i.strip()]
+        
+        domain_expertise = capabilities.get("domain_expertise", ["calendar", "scheduling"])
+        domain_str = st.text_input(
+            "Domain Expertise (comma-separated)",
+            value=", ".join(domain_expertise)
+        )
+        capabilities["domain_expertise"] = [d.strip() for d in domain_str.split(",") if d.strip()]
+    
+    # Save button
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("💾 Save AgentFacts", type="primary", use_container_width=True):
+            if save_agentfacts(facts):
+                st.success("✅ AgentFacts saved successfully!")
+                st.rerun()
+            else:
+                st.error("❌ Failed to save AgentFacts")
+    
+    with col2:
+        if st.button("🔙 Back to Dashboard", use_container_width=True):
+            st.query_params.clear()
+            st.rerun()
+    
+    # Preview section
+    st.header("👁️ Preview")
+    with st.expander("Preview AgentFacts JSON", expanded=False):
+        st.json(facts)
+    
+    # Show endpoint info
+    st.info(f"📡 AgentFacts will be available at: `http://localhost:8000/.well-known/agentfacts.json`")
+
+
 def main():
     # Display Agent DID
     if 'agent_did' not in st.session_state:
         try:
             from agent import Agent
             # Initialize agent if not already done
-            agent = Agent(name="Calendar Agent", host="localhost", a2a_port=10000, mcp_port=8000)
+            agent = Agent(name="Calendar Agent", host="localhost", a2a_port=8000, mcp_port=8000)
             st.session_state.agent_did = agent.get_did()
         except Exception as e:
             st.session_state.agent_did = None
@@ -299,6 +456,23 @@ def main():
             st.code(st.session_state.agent_did, language=None)
             if st.button("📋 Copy DID", key="copy_did"):
                 st.write("💾 DID copied to clipboard!")
+        
+        # Add AgentFacts link
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### 📋 AgentFacts")
+        if st.sidebar.button("📋 Configure AgentFacts", key="configure_agentfacts", use_container_width=True):
+            st.query_params["page"] = "agentfacts"
+            st.rerun()
+        
+        # Show AgentFacts endpoint
+        agentfacts_url = f"http://localhost:8000/.well-known/agentfacts.json"
+        with st.sidebar.expander("🔗 AgentFacts Endpoint", expanded=False):
+            st.write("**Endpoint URL:**")
+            st.code(agentfacts_url, language=None)
+            if st.button("📋 Copy URL", key="copy_agentfacts_url"):
+                st.write("💾 URL copied to clipboard!")
+            if st.button("🔗 Open AgentFacts", key="open_agentfacts"):
+                st.markdown(f"[View AgentFacts]({agentfacts_url})")
     
     # Display MCP server status and URL
     if st.session_state.get('mcp_server_started', False):
@@ -338,7 +512,39 @@ def main():
         booking_page()
         return
     
+    # Handle /agentfacts route
+    if query_params.get('page') == 'agentfacts':
+        agentfacts_page()
+        return
+    
     st.title("📅 Calendar Agent Dashboard")
+    
+    # Add AgentFacts quick access button at the top
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        st.markdown("")  # Spacing
+    with col2:
+        if st.button("📋 Configure AgentFacts", key="top_configure_agentfacts", use_container_width=True):
+            st.query_params["page"] = "agentfacts"
+            st.rerun()
+    with col3:
+        agentfacts_url = f"http://localhost:8000/.well-known/agentfacts.json"
+        if st.button("🔗 View AgentFacts JSON", key="view_agentfacts_json", use_container_width=True):
+            st.query_params["view_agentfacts"] = "true"
+            st.rerun()
+    
+    # Show AgentFacts JSON if requested
+    if st.query_params.get("view_agentfacts") == "true":
+        try:
+            from agentfacts import load_agentfacts
+            facts = load_agentfacts()
+            with st.expander("📋 AgentFacts JSON", expanded=True):
+                st.json(facts)
+                if st.button("❌ Close", key="close_agentfacts"):
+                    st.query_params.clear()
+                    st.rerun()
+        except Exception as e:
+            st.error(f"Could not load AgentFacts: {e}")
     
     # Ensure calendar is properly initialized (in case session state was reset)
     # IMPORTANT: Only create new calendar if it doesn't exist, preserve existing one

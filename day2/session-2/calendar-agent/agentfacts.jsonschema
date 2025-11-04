@@ -1,0 +1,492 @@
+
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentfacts.org/schemas/v1/agentfacts-v1.json",
+  "title": "AgentFacts Universal Metadata Schema v1.0",
+  "description": "Universal KYA (Know Your Agent) standard for verified AI agent metadata and deployment. Apache 2.0 licensed foundational infrastructure for agent coordination.",
+  "type": "object",
+  "required": ["core_identity", "baseline_model"],
+  "properties": {
+    "core_identity": {
+      "type": "object",
+      "description": "Required unique identification and lifecycle metadata for universal agent coordination",
+      "required": ["agent_id", "name", "version", "created", "last_updated", "ttl"],
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "Unique identifier - supports DID, UUID, URI, or custom schemes. Extensible to any identity standard."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable agent identifier. Extensible with internationalization support."
+        },
+        "version": {
+          "type": "string",
+          "description": "AgentFacts schema version. Extensible for schema evolution tracking."
+        },
+        "created": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO timestamp of initial registration. Extensible with timezone and precision metadata."
+        },
+        "last_updated": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO timestamp of most recent update. Extensible with update reason tracking."
+        },
+        "ttl": {
+          "type": "integer",
+          "description": "Global time-to-live in seconds. Extensible with per-section TTL overrides."
+        }
+      },
+      "additionalProperties": true,
+      "patternProperties": {
+        "^x-": {
+          "description": "Custom extensions for organization-specific identity metadata"
+        }
+      }
+    },
+    "baseline_model": {
+      "type": "object",
+      "description": "Required foundation AI model transparency for trust and compliance assessment",
+      "properties": {
+        "foundation_model": {
+          "type": "string",
+          "description": "Base AI model identifier. Extensible to support any foundation model naming convention."
+        },
+        "model_version": {
+          "type": "string",
+          "description": "Specific version identifier. Extensible with semantic versioning or custom schemes."
+        },
+        "model_provider": {
+          "type": "string",
+          "description": "Organization providing base model. Extensible with provider metadata and verification."
+        },
+        "training_data_sources": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Data sources used for fine-tuning. Extensible with provenance and licensing details."
+        },
+        "training_cutoff_date": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Knowledge cutoff timestamp. Extensible with domain-specific cutoff tracking."
+        },
+        "fine_tuning": {
+          "type": "object",
+          "description": "Custom training specifications. Fully extensible for any fine-tuning methodology."
+        },
+        "model_capabilities": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Model capabilities (multimodal, reasoning, tool use). Extensible taxonomy."
+        },
+        "known_limitations": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Documented capability boundaries. Extensible with structured limitation categories."
+        },
+        "bias_assessments": {
+          "type": "object",
+          "description": "Fairness and bias evaluation results. Extensible for any bias testing framework."
+        },
+        "safety_evaluations": {
+          "type": "object",
+          "description": "Risk and safety testing outcomes. Extensible for evolving safety standards."
+        }
+      },
+      "additionalProperties": true,
+      "patternProperties": {
+        "^x-": {
+          "description": "Custom extensions for proprietary model metadata"
+        }
+      }
+    },
+    "classification": {
+      "type": "object",
+      "description": "Universal categorization system for agent discovery and coordination. All categories extensible.",
+      "properties": {
+        "agent_type": {
+          "type": "string",
+          "enum": ["assistant", "autonomous", "tool", "workflow"],
+          "description": "Primary agent classification. Extensible enum for emerging agent types."
+        },
+        "operational_level": {
+          "type": "string",
+          "enum": ["ambient", "supervised", "autonomous"],
+          "description": "Autonomy level classification. Extensible for granular autonomy models."
+        },
+        "stakeholder_context": {
+          "type": "string",
+          "enum": ["enterprise", "consumer", "government"],
+          "description": "Primary stakeholder context. Extensible for specialized contexts."
+        },
+        "deployment_scope": {
+          "type": "string",
+          "enum": ["internal", "external", "hybrid"],
+          "description": "Deployment boundary classification. Extensible for complex deployment patterns."
+        },
+        "interaction_mode": {
+          "type": "string",
+          "enum": ["synchronous", "asynchronous", "batch"],
+          "description": "Primary interaction pattern. Extensible for mixed-mode operations."
+        }
+      },
+      "additionalProperties": true,
+      "patternProperties": {
+        "^x-": {
+          "description": "Custom classification dimensions for domain-specific categorization"
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "description": "Extensible capability declarations supporting any interface or protocol",
+      "properties": {
+        "external_apis": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Supported API specifications. Extensible to any API standard or custom protocol."
+        },
+        "tool_calling": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Tool calling protocols (MCP, function_calls, custom). Fully extensible."
+        },
+        "programming_languages": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Supported programming languages. Extensible to any language or DSL."
+        },
+        "data_formats": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Supported data formats. Extensible to any structured or unstructured format."
+        },
+        "interface_types": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Supported interface types. Extensible for emerging interaction paradigms."
+        },
+        "domain_expertise": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Domain specializations. Extensible taxonomy for any domain or subdomain."
+        },
+        "language_support": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Natural language support. Extensible with proficiency levels and dialects."
+        }
+      },
+      "additionalProperties": true,
+      "patternProperties": {
+        "^x-": {
+          "description": "Custom capability categories for specialized functionality"
+        }
+      }
+    },
+    "authentication_permissions": {
+      "type": "object",
+      "description": "Enterprise-critical authentication and dynamic permissions. Extensible for any auth standard.",
+      "properties": {
+        "supported_methods": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Authentication methods. Extensible to support emerging auth standards."
+        },
+        "primary_scheme": {
+          "type": "string",
+          "description": "Recommended authentication method. Extensible with fallback schemes."
+        },
+        "oauth_endpoints": {
+          "type": "object",
+          "description": "OAuth server configurations. Extensible for any OAuth variant or custom flows."
+        },
+        "token_requirements": {
+          "type": "object",
+          "description": "Scope and claim specifications. Extensible for custom token formats."
+        },
+        "auth_security_level": {
+          "type": "string",
+          "enum": ["basic", "standard", "high", "critical"],
+          "description": "Security level classification. Extensible for granular security models."
+        },
+        "session_management": {
+          "type": "object",
+          "description": "Timeout and refresh policies. Extensible for complex session scenarios."
+        },
+        "multi_factor_required": {
+          "type": "boolean",
+          "description": "MFA requirement flag. Extensible with MFA method specifications."
+        },
+        "auth_compliance": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Authentication compliance standards. Extensible to any compliance framework."
+        },
+        "current_permissions": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Current access permissions. Extensible permission taxonomy."
+        },
+        "permission_scope": {
+          "type": "object",
+          "description": "Resource pattern specifications. Extensible for any resource model."
+        },
+        "scope_of_work": {
+          "type": "object",
+          "description": "Operational boundary definitions. Extensible for complex work constraints."
+        },
+        "permission_ttl": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Permission expiration timestamp. Extensible with renewal policies."
+        },
+        "permission_authority": {
+          "type": "string",
+          "description": "Granting organization identifier. Extensible with authority hierarchies."
+        },
+        "escalation_policy": {
+          "type": "object",
+          "description": "Permission upgrade procedures. Extensible workflow definitions."
+        },
+        "audit_trail": {
+          "type": "array",
+          "items": {"type": "object"},
+          "description": "Permission change history. Extensible audit event schemas."
+        }
+      },
+      "additionalProperties": true,
+      "patternProperties": {
+        "^x-": {
+          "description": "Custom authentication and permission extensions"
+        }
+      }
+    },
+    "compliance_regulatory": {
+      "type": "object",
+      "description": "Multi-jurisdictional regulatory compliance metadata. Extensible to any regulatory framework.",
+      "properties": {
+        "eu_ai_act": {
+          "type": "object",
+          "description": "EU AI Act compliance metadata. Extensible for evolving EU requirements."
+        },
+        "nist_ai_rmf": {
+          "type": "object",
+          "description": "NIST AI Risk Management Framework alignment. Extensible for framework updates."
+        },
+        "gdpr_compliance": {
+          "type": "object",
+          "description": "GDPR data protection compliance. Extensible for privacy regulation variants."
+        },
+        "sector_standards": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Industry-specific standards. Extensible to any sector or standard."
+        },
+        "geographic_compliance": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Geographic compliance markers. Extensible jurisdiction support."
+        },
+        "safety_classification": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"],
+          "description": "Safety risk classification. Extensible with custom risk taxonomies."
+        },
+        "audit_certifications": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Professional audit certifications. Extensible certification catalog."
+        }
+      },
+      "additionalProperties": true,
+      "patternProperties": {
+        "^x-": {
+          "description": "Custom compliance and regulatory extensions"
+        }
+      }
+    },
+    "performance_reputation": {
+      "type": "object",
+      "description": "Measurable quality metrics and reputation data. Extensible metrics framework.",
+      "properties": {
+        "response_time_p50": {
+          "type": "number",
+          "description": "Median latency in milliseconds. Extensible with percentile distributions."
+        },
+        "response_time_p95": {
+          "type": "number",
+          "description": "95th percentile latency. Extensible for SLA-specific percentiles."
+        },
+        "availability_sla": {
+          "type": "number",
+          "description": "Uptime percentage commitment. Extensible with availability models."
+        },
+        "throughput_limit": {
+          "type": "number",
+          "description": "Requests per minute capacity. Extensible with burst and sustained rates."
+        },
+        "accuracy_metrics": {
+          "type": "object",
+          "description": "Domain-specific performance scores. Extensible for any evaluation framework."
+        },
+        "error_rate": {
+          "type": "number",
+          "description": "Failure percentage over time window. Extensible error categorization."
+        },
+        "cost_structure": {
+          "type": "object",
+          "description": "Pricing model metadata. Extensible for any billing scheme."
+        },
+        "reputation_score": {
+          "type": "number",
+          "description": "Aggregate quality rating. Extensible reputation algorithms."
+        },
+        "user_satisfaction": {
+          "type": "number",
+          "description": "Average satisfaction ratings. Extensible satisfaction measurement."
+        },
+        "historical_performance": {
+          "type": "array",
+          "items": {"type": "object"},
+          "description": "Time-series performance data. Extensible historical schemas."
+        }
+      },
+      "additionalProperties": true,
+      "patternProperties": {
+        "^x-": {
+          "description": "Custom performance and reputation metrics"
+        }
+      }
+    },
+    "supply_chain": {
+      "type": "object",
+      "description": "SBOM integration for supply chain transparency. Extensible dependency tracking.",
+      "properties": {
+        "component_dependencies": {
+          "type": "array",
+          "items": {"type": "object"},
+          "description": "Third-party service dependencies. Extensible dependency schemas."
+        },
+        "data_sources": {
+          "type": "array",
+          "items": {"type": "object"},
+          "description": "Training and operational data origins. Extensible provenance tracking."
+        },
+        "infrastructure_providers": {
+          "type": "array",
+          "items": {"type": "object"},
+          "description": "Hosting and compute services. Extensible infrastructure metadata."
+        },
+        "software_libraries": {
+          "type": "array",
+          "items": {"type": "object"},
+          "description": "Code dependencies and versions. Extensible software component tracking."
+        },
+        "security_scanning": {
+          "type": "object",
+          "description": "Vulnerability assessment results. Extensible security scan formats."
+        },
+        "license_compliance": {
+          "type": "object",
+          "description": "Open source license obligations. Extensible license tracking."
+        },
+        "supply_chain_attestation": {
+          "type": "object",
+          "description": "Cryptographic verification of supply chain components. Extensible attestation formats."
+        }
+      },
+      "additionalProperties": true,
+      "patternProperties": {
+        "^x-": {
+          "description": "Custom supply chain transparency extensions"
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "description": "Cryptographic trust and multi-authority verification. Extensible signature schemes.",
+      "properties": {
+        "signatures": {
+          "type": "array",
+          "items": {"type": "object"},
+          "description": "Multi-authority cryptographic proofs. Extensible signature formats."
+        },
+        "verification_authorities": {
+          "type": "array",
+          "items": {"type": "object"},
+          "description": "Trusted validators list. Extensible authority metadata."
+        },
+        "verification_policy": {
+          "type": "object",
+          "description": "Trust requirements specification. Extensible policy frameworks."
+        },
+        "confidence_levels": {
+          "type": "object",
+          "description": "Authority-specific trust scores. Extensible confidence models."
+        },
+        "verification_ttl": {
+          "type": "object",
+          "description": "Fact freshness expiration times. Extensible TTL policies."
+        },
+        "signature_algorithms": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Cryptographic methods used. Extensible to post-quantum algorithms."
+        },
+        "revocation_status": {
+          "type": "object",
+          "description": "Certificate validity indicators. Extensible revocation mechanisms."
+        }
+      },
+      "additionalProperties": true,
+      "patternProperties": {
+        "^x-": {
+          "description": "Custom verification and trust extensions"
+        }
+      }
+    },
+    "extensibility": {
+      "type": "object",
+      "description": "Future-proofing mechanisms for schema evolution. Fully extensible extension framework.",
+      "properties": {
+        "custom_facts": {
+          "type": "object",
+          "description": "Domain-specific metadata extensions. Unlimited extensibility for specialized metadata."
+        },
+        "integration_hooks": {
+          "type": "array",
+          "items": {"type": "object"},
+          "description": "Webhook endpoints for updates. Extensible notification mechanisms."
+        },
+        "schema_extensions": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "References to additional schemas. Extensible schema composition."
+        },
+        "plugin_interfaces": {
+          "type": "array",
+          "items": {"type": "object"},
+          "description": "Standardized extension mechanisms. Extensible plugin architectures."
+        },
+        "backward_compatibility": {
+          "type": "object",
+          "description": "Version migration support. Extensible compatibility strategies."
+        }
+      },
+      "additionalProperties": true,
+      "patternProperties": {
+        ".*": {
+          "description": "Unlimited extensibility - any property allowed for maximum flexibility"
+        }
+      }
+    }
+  },
+  "additionalProperties": true,
+  "patternProperties": {
+    "^x-": {
+      "description": "Global custom extensions for organization-specific metadata not covered by standard sections"
+    }
+  }
+}

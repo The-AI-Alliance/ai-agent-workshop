@@ -3,7 +3,11 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
 from fastmcp import FastMCP
 import sys
+import json
 from pathlib import Path
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.applications import Starlette
 
 # Add current directory to path to import local modules
 sys.path.insert(0, str(Path(__file__).parent))
@@ -11,8 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 # Import Agent class
 from agent import Agent
 
-# Initialize agent with DID Peer
-agent = Agent(name="Calendar Agent", host="localhost", a2a_port=10000, mcp_port=8000)
+# Initialize agent with DID Peer - A2A now on same port as MCP
+agent = Agent(name="Calendar Agent", host="localhost", a2a_port=8000, mcp_port=8000)
 
 # Import local modules
 import importlib.util
@@ -31,8 +35,24 @@ EventStatus = calendar_module.EventStatus
 BookingPreferences = calendar_module.BookingPreferences
 CalendarDBAdapter = db_adapter_module.CalendarDBAdapter
 
-# Initialize MCP server
-mcp = FastMCP("Calendar Agent MCP Server")
+# Initialize MCP server with HTTP support for custom routes
+mcp = FastMCP("Calendar Agent MCP Server", stateless_http=True)
+
+# Add AgentFacts endpoint
+@mcp.custom_route("/.well-known/agentfacts.json", methods=["GET"])
+async def get_agentfacts(_: Request) -> JSONResponse:
+    """Serve AgentFacts from the local file."""
+    try:
+        agentfacts_path = Path(__file__).parent / "agentfacts.json"
+        
+        if agentfacts_path.exists():
+            with agentfacts_path.open('r', encoding='utf-8') as f:
+                facts = json.load(f)
+            return JSONResponse(facts)
+        else:
+            return JSONResponse({"error": "AgentFacts not found"}, status_code=404)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 # Initialize database adapter
 DB_PATH = "calendar_agent.db"
@@ -336,7 +356,7 @@ def deleteBooking(event_id: str) -> Dict[str, Any]:
 
 
 def run_mcp_server(host: str = "localhost", port: int = 8000):
-    """Run the MCP server with SSE transport (can be called from another process/thread).
+    """Run the MCP server with SSE transport and merged A2A server (can be called from another process/thread).
     
     Args:
         host: Host to bind the server to
@@ -347,20 +367,102 @@ def run_mcp_server(host: str = "localhost", port: int = 8000):
     """
     server_url = f"http://{host}:{port}/sse"
     print(f"\n{'='*60}")
-    print(f"🚀 Starting MCP Server with SSE transport on {server_url}")
+    print(f"🚀 Starting MCP Server with merged A2A on port {port}")
     print(f"📋 Agent DID: {agent.get_did()}")
     print(f"🔗 Service Endpoints:")
     for service_name, endpoint in agent.get_service_endpoints().items():
         print(f"   {service_name}: {endpoint}")
     print(f"{'='*60}\n")
+    
     # FastMCP accepts transport kwargs for HTTP-based transports
+    # Use streamable-http to support both SSE and custom HTTP routes
     try:
-        mcp.run(transport="sse", host=host, port=port)
-    except TypeError:
-        # If host/port not supported, try without them (will use stdio)
-        print(f"⚠️ Host/port not supported, using stdio transport")
-        server_url = "stdio://sse"
-        mcp.run(transport="sse")
+        from starlette.middleware import Middleware
+        from starlette.middleware.cors import CORSMiddleware
+        import uvicorn
+        
+        # Try to create A2A server
+        a2a_fastapi_app = None
+        try:
+            from a2a_server import create_a2a_server
+            a2a_fastapi_app = create_a2a_server(host=host, port=port)
+            if a2a_fastapi_app:
+                print(f"✅ A2A FastAPI app created")
+        except Exception as e:
+            print(f"⚠️  Could not create A2A server: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        http_middleware = [
+            Middleware(
+                CORSMiddleware,
+                allow_origins=["*"],
+                allow_credentials=True,
+                allow_methods=["*"],
+                allow_headers=["*"],
+            )
+        ]
+        
+        # If A2A app is available, we need to create a unified app
+        # FastMCP uses Starlette internally, so we can mount the A2A app
+        if a2a_fastapi_app:
+            try:
+                # Get the underlying Starlette app from FastMCP
+                # FastMCP's run() method builds the app, but we need to access it
+                # We'll use uvicorn directly to run both apps mounted together
+                from starlette.applications import Starlette
+                from starlette.routing import Mount
+                
+                # Build the FastMCP app first
+                # FastMCP's run() builds the app internally, so we need to access it
+                # Try to get the app after building
+                mcp_app = None
+                
+                # Check if FastMCP exposes the app
+                if hasattr(mcp, '_build_app'):
+                    mcp_app = mcp._build_app()
+                elif hasattr(mcp, 'app'):
+                    mcp_app = mcp.app
+                elif hasattr(mcp, '_app'):
+                    mcp_app = mcp._app
+                
+                if mcp_app:
+                    # Mount A2A app at root, MCP routes will still work
+                    # FastAPI can be mounted as a sub-application
+                    unified_app = Starlette(
+                        routes=[
+                            Mount("/", app=a2a_fastapi_app),
+                            Mount("/", app=mcp_app)  # Mount MCP routes
+                        ],
+                        middleware=http_middleware
+                    )
+                    print(f"✅ Unified app created with A2A and MCP")
+                    uvicorn.run(unified_app, host=host, port=port, log_level="info")
+                    return
+                else:
+                    # Fallback: use FastMCP's run and manually add A2A routes
+                    # Mount A2A routes directly on the MCP app
+                    print(f"⚠️  Could not access FastMCP app directly, using fallback")
+            except Exception as e:
+                print(f"⚠️  Could not create unified app: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Fallback: Run FastMCP normally (A2A may not be available)
+        # Run with streamable-http to support both SSE and custom routes
+        mcp.run(transport="streamable-http", middleware=http_middleware, host=host, port=port)
+    except Exception as e:
+        print(f"⚠️ Error running MCP server: {e}")
+        import traceback
+        traceback.print_exc()
+        # Fallback to SSE only
+        try:
+            mcp.run(transport="sse", host=host, port=port)
+        except TypeError:
+            # If host/port not supported, try without them (will use stdio)
+            print(f"⚠️ Host/port not supported, using stdio transport")
+            server_url = "stdio://sse"
+            mcp.run(transport="sse")
     return server_url
 
 
