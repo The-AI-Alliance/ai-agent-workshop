@@ -7,6 +7,29 @@ import json
 from pathlib import Path
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+
+# Load .env file at the beginning
+try:
+    from dotenv import load_dotenv
+    # Load .env from the calendar-agent directory
+    env_path = Path(__file__).parent / '.env'
+    if env_path.exists():
+        load_dotenv(env_path)
+        print(f"✅ Loaded .env file from {env_path}")
+    else:
+        # Try loading from parent directory
+        parent_env = Path(__file__).parent.parent / '.env'
+        if parent_env.exists():
+            load_dotenv(parent_env)
+            print(f"✅ Loaded .env file from {parent_env}")
+        else:
+            # Try loading from current working directory
+            load_dotenv()
+            print(f"ℹ️  No .env file found, using environment variables")
+except ImportError:
+    print("⚠️  python-dotenv not installed. Install with: pip install python-dotenv")
+    print("   Environment variables must be set manually")
+
 # Add current directory to path to import local modules
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -456,7 +479,15 @@ def run_mcp_server(host: str = "localhost", port: int = 8000):
         
         # Create A2A Starlette app to mount under /a2a
         from a2a_server import create_a2a_server
-        a2a_starlette_app = create_a2a_server(host=host, port=port)
+        try:
+            a2a_starlette_app = create_a2a_server(host=host, port=port)
+            if a2a_starlette_app is None:
+                print(f"⚠️  A2A server creation returned None - check logs above for errors")
+        except Exception as e:
+            print(f"⚠️  Error creating A2A server: {e}")
+            import traceback
+            traceback.print_exc()
+            a2a_starlette_app = None
         
         http_middleware = [
             Middleware(
@@ -488,14 +519,21 @@ def run_mcp_server(host: str = "localhost", port: int = 8000):
                         # We'll need to mount the MCP routes manually
                         mcp_sse_app = None
                     
+                    # Always mount A2A app if available
+                    if a2a_starlette_app:
+                        main_app.mount("/a2a", a2a_starlette_app)
+                        print(f"✅ A2A Starlette app mounted at /a2a")
+                    else:
+                        print(f"⚠️  A2A app not available, skipping mount")
+                    
                     if mcp_sse_app:
                         # Mount MCP SSE app under /mcp
                         main_app.mount("/mcp", mcp_sse_app)
                         print(f"✅ MCP SSE app mounted at /mcp")
-                    
-                    # Mount A2A Starlette app under /a2a
-                    main_app.mount("/a2a", a2a_starlette_app)
-                    print(f"✅ A2A FastAPI app mounted at /a2a")
+                    else:
+                        print(f"⚠️  MCP SSE app not available, MCP routes may not work")
+                        # Add MCP routes manually via custom routes (they're already defined above)
+                        print(f"   Using custom MCP routes defined in FastMCP")
                     
                     # Also add the agent card route at root (it's already in A2A app, but we want it accessible)
                     # The A2A app should have it at /.well-known/agent-card.json

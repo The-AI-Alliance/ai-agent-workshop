@@ -11,6 +11,28 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 import importlib.util
 
+# Load .env file at the beginning
+try:
+    from dotenv import load_dotenv
+    # Load .env from the calendar-agent directory
+    env_path = Path(__file__).parent / '.env'
+    if env_path.exists():
+        load_dotenv(env_path)
+        print(f"✅ Loaded .env file from {env_path}")
+    else:
+        # Try loading from parent directory
+        parent_env = Path(__file__).parent.parent / '.env'
+        if parent_env.exists():
+            load_dotenv(parent_env)
+            print(f"✅ Loaded .env file from {parent_env}")
+        else:
+            # Try loading from current working directory
+            load_dotenv()
+            print(f"ℹ️  No .env file found, using environment variables")
+except ImportError:
+    print("⚠️  python-dotenv not installed. Install with: pip install python-dotenv")
+    print("   Environment variables must be set manually")
+
 # Import A2A SDK
 A2A_AVAILABLE = False
 A2AServer = None
@@ -573,7 +595,11 @@ Always provide helpful and clear responses based on the tool results."""
         context: RequestContext if RequestContext else Any,
         event_queue: EventQueue if EventQueue else Any,
     ) -> None:
-        """Execute calendar agent logic based on the request context."""
+        """Execute calendar agent logic using OpenAI to process messages and call tools.
+        
+        This follows the pattern from github-agent example:
+        https://github.com/a2aproject/a2a-samples/blob/main/samples/python/agents/github-agent/openai_agent_executor.py
+        """
         if not A2A_AVAILABLE:
             if event_queue:
                 await event_queue.enqueue_event({
@@ -584,9 +610,9 @@ Always provide helpful and clear responses based on the tool results."""
         
         from a2a.utils import new_agent_text_message
         from a2a.types import TextPart
+        import json
         
         # Extract message text from context.message.parts (following github-agent pattern)
-        # See: https://github.com/a2aproject/a2a-samples/blob/main/samples/python/agents/github-agent/openai_agent_executor.py
         message_text = ''
         if hasattr(context, 'message') and context.message:
             if hasattr(context.message, 'parts'):
@@ -603,27 +629,98 @@ Always provide helpful and clear responses based on the tool results."""
             elif isinstance(context.message, dict):
                 message_text = str(context.message.get('content', ''))
         
-        # For now, we'll return a simple response based on the message
-        # TODO: Integrate with OpenAI or another LLM to process the message and generate tool calls
-        # The github-agent example shows how to use OpenAI to interpret messages and call tools
-        
-        # Simple keyword-based response for now
-        message_lower = message_text.lower().strip() if message_text else ""
-        
         if not message_text:
-            response_text = "Calendar agent ready. I can help you find available slots, book meetings, and manage calendar events."
-        elif any(keyword in message_lower for keyword in ['available', 'slot', 'availability', 'free time']):
-            response_text = "To check available slots, please use the requestAvailableSlots tool with start_date, end_date, and duration parameters."
-        elif any(keyword in message_lower for keyword in ['book', 'schedule', 'meeting', 'appointment']):
-            response_text = "To book a meeting, please use the requestBooking tool with start_time, duration, and partner_agent_id parameters."
-        elif any(keyword in message_lower for keyword in ['cancel', 'delete', 'remove']):
-            response_text = "To cancel a booking, please use the deleteBooking tool with the event_id parameter."
-        else:
-            response_text = f"I received your message: '{message_text}'. To interact with the calendar, please use the available tools: requestAvailableSlots, requestBooking, or deleteBooking."
+            if event_queue:
+                await event_queue.enqueue_event(new_agent_text_message(
+                    "Calendar agent ready. I can help you find available slots, book meetings, and manage calendar events."
+                ))
+            return
         
-        # Send response
-        if event_queue:
-            await event_queue.enqueue_event(new_agent_text_message(response_text))
+        # Process request with OpenAI (following github-agent pattern)
+        messages = [
+            {'role': 'system', 'content': self.system_prompt},
+            {'role': 'user', 'content': message_text},
+        ]
+        
+        max_iterations = 10
+        iteration = 0
+        
+        while iteration < max_iterations:
+            iteration += 1
+            
+            try:
+                # Make API call to OpenAI
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    tools=self.tools,
+                    tool_choice='auto',
+                    temperature=0.1,
+                    max_tokens=4000,
+                )
+                
+                message = response.choices[0].message
+                
+                # Add assistant's response to messages
+                messages.append({
+                    'role': 'assistant',
+                    'content': message.content,
+                    'tool_calls': message.tool_calls,
+                })
+                
+                # Check if there are tool calls to execute
+                if message.tool_calls:
+                    # Execute tool calls
+                    for tool_call in message.tool_calls:
+                        function_name = tool_call.function.name
+                        function_args = json.loads(tool_call.function.arguments)
+                        
+                        # Execute the function
+                        result = None
+                        if function_name == "requestAvailableSlots":
+                            result = handle_request_available_slots(function_args)
+                        elif function_name == "requestBooking":
+                            result = handle_request_booking(function_args)
+                        elif function_name == "deleteBooking":
+                            result = handle_delete_booking(function_args)
+                        else:
+                            result = {'error': f'Function {function_name} not found'}
+                        
+                        # Serialize result properly
+                        if hasattr(result, 'model_dump'):
+                            # It's a Pydantic model
+                            result_json = json.dumps(result.model_dump())
+                        elif isinstance(result, dict):
+                            result_json = json.dumps(result)
+                        else:
+                            result_json = str(result)
+                        
+                        # Add tool result to messages
+                        messages.append({
+                            'role': 'tool',
+                            'tool_call_id': tool_call.id,
+                            'content': result_json,
+                        })
+                    
+                    # Continue the loop to get the final response
+                    continue
+                
+                # No more tool calls, this is the final response
+                if message.content:
+                    if event_queue:
+                        await event_queue.enqueue_event(new_agent_text_message(message.content))
+                break
+                
+            except Exception as e:
+                error_message = f'Sorry, an error occurred while processing the request: {str(e)}'
+                if event_queue:
+                    await event_queue.enqueue_event(new_agent_text_message(error_message))
+                break
+        
+        if iteration >= max_iterations:
+            error_message = 'Sorry, the request has exceeded the maximum number of iterations.'
+            if event_queue:
+                await event_queue.enqueue_event(new_agent_text_message(error_message))
     
     async def cancel(
         self, 
@@ -702,7 +799,19 @@ def create_a2a_server(host: str = "localhost", port: int = 8000) -> Optional[Any
             return None
         
         # Create agent executor
-        agent_executor = CalendarAgentExecutor()
+        try:
+            agent_executor = CalendarAgentExecutor()
+        except ValueError as e:
+            print(f"⚠️  Could not create CalendarAgentExecutor: {e}")
+            print("   Make sure OPENAI_KEY environment variable is set")
+            import traceback
+            traceback.print_exc()
+            return None
+        except Exception as e:
+            print(f"⚠️  Error creating CalendarAgentExecutor: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
         
         # Create request handler with executor and task store
         request_handler = DefaultRequestHandler(

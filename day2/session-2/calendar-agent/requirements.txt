@@ -6,3 +6,4 @@ a2a-sdk
 a2a-sdk[all]
 base58
 pyngrok
+openai

@@ -5,6 +5,28 @@ import os
 import importlib.util
 from pathlib import Path
 
+# Load .env file at the beginning
+try:
+    from dotenv import load_dotenv
+    # Load .env from the calendar-agent directory
+    env_path = Path(__file__).parent / '.env'
+    if env_path.exists():
+        load_dotenv(env_path)
+        print(f"✅ Loaded .env file from {env_path}")
+    else:
+        # Try loading from parent directory
+        parent_env = Path(__file__).parent.parent / '.env'
+        if parent_env.exists():
+            load_dotenv(parent_env)
+            print(f"✅ Loaded .env file from {parent_env}")
+        else:
+            # Try loading from current working directory
+            load_dotenv()
+            print(f"ℹ️  No .env file found, using environment variables")
+except ImportError:
+    print("⚠️  python-dotenv not installed. Install with: pip install python-dotenv")
+    print("   Environment variables must be set manually")
+
 # Import Agent class
 from agent import Agent
 
