@@ -1,10 +1,10 @@
 {
   "core_identity": {
-    "agent_id": "did:peer:2.VzFQrixXVermrgiTzEV9iKcpLuvtbVy7Suqq47qkW46wi.SeyJ0IjoiQTJBIiwicyI6Imh0dHBzOi8vMTU1YmRhMmU1MzU2Lm5ncm9rLWZyZWUuYXBwIn0.SeyJ0IjoiTUNQIiwicyI6Imh0dHBzOi8vNjA3NjVmOWU5ZjZjLm5ncm9rLWZyZWUuYXBwL21jcC9jYWxlbmRhciJ9",
+    "agent_id": "did:peer:2.VzFQrixXVermrgiTzEV9iKcpLuvtbVy7Suqq47qkW46wi.SeyJ0IjoiQTJBIiwicyI6Imh0dHBzOi8vODdhNDRmYTQ0ZDRmLm5ncm9rLWZyZWUuYXBwIn0.SeyJ0IjoiTUNQIiwicyI6Imh0dHBzOi8vMWIzOTBjNWQ4MDUxLm5ncm9rLWZyZWUuYXBwL21jcC9jYWxlbmRhciJ9",
     "name": "Calendar Agent",
     "version": "1.0.0",
     "created": "2025-11-03T22:45:05.947701",
-    "last_updated": "2025-11-03T22:51:21.106773",
+    "last_updated": "2025-11-03T22:57:44.594670",
     "ttl": 3600
   },
   "baseline_model": {

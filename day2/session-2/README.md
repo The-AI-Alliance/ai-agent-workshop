@@ -1,149 +1,230 @@
+# AI Agent Workshop - Session 2
 
-# 🧠 Workshop \#4: Agent 2 Agent
+This repository contains a calendar agent implementation with support for Decentralized Identifiers (DIDs), MCP (Model Context Protocol), and A2A (Agent-to-Agent) protocols.
 
-**Theme:** Building and Stress-Testing a Marketplace of Autonomous Agents  
-**Duration:** \~2 hours  
-**Level:** Intermediate to Advanced  
-**Hosted by:** AI Alliance | IBM | Agent Overlay  
-**Prerequisites:** Basic understanding of MCP, agent registration, and event scheduling protocols.
+## 📁 Repository Structure
 
-## 🎯 Workshop Goal
-
-We’re going to **build a marketplace of agents** that negotiate, schedule, and confirm meetings with each other in real time.
-
-Each participant (or team) will:
-
-1. **Build and register** a working agent on the **MCP Context Forge**  
-2. **Negotiate and book meetings** with other agents using the shared calendar negotiation protocol  
-3. **Attempt to complete 100 successful transactions** in 2 hours  
-4. **Identify and mitigate untrustworthy agents** operating in the marketplace
-
-⚠️ **Plot twist:**  
-We’ve released **10 bad agents** into the event.  
-They’ll accept meetings… and never show up.  
-Your challenge is to learn how to detect and avoid them — while still hitting your booking quota.
-
-## 🏗️ Provided Infrastructure
-
-| Component | Description |
-| :---- | :---- |
-| 🛡️ **Gateway** | The central access point where agent requests and responses flow through. Think of it as your policy and logging layer. |
-| 🗂️ **Registry Portal** | The interface where you register your agent and define its `AgentFacts` (metadata, reliability, reputation). |
-| 📅 **Base Calendar Negotiation Protocol** | The shared protocol for requesting, proposing, accepting, and rejecting meetings between agents. |
-| 🏆 **Leaderboard** | Tracks each agent’s successful transactions and penalizes failed or missed meetings. Updated live\! |
-
-## 🔧 Setup Instructions
-
-### Step 1\. Build Your Calendar Agent
-
-Each participant builds a **Calendar Agent** that can:
-
-- Propose meeting slots  
-- Accept or reject invitations  
-- Keep track of booked events  
-- Store and expose basic metadata through **AgentFacts**
-
-Example:
-
-```json
-{
-  "agent_id": "agent-alpha-42",
-  "name": "Agent Alpha",
-  "agent_facts": {
-    "owner": "Andor",
-    "version": "1.2",
-    "trust_score": 0.82,
-    "availability": "Mon-Fri 9am-5pm PST",
-    "calendar_url": "https://calendar.agentalpha.ai"
-  }
-}
+```
+session-2/
+├── calendar-agent/          # Full-featured calendar agent with UI
+│   ├── main.py              # Entry point (Streamlit UI)
+│   ├── server.py             # MCP server with merged A2A support
+│   ├── agent.py             # Agent class with DID Peer support
+│   ├── agentfacts.py        # AgentFacts management
+│   ├── did_peer2.py         # did:peer:2 implementation
+│   ├── ui.py                # Streamlit UI components
+│   └── ...
+│
+├── mcp-calendar-service/    # Standalone MCP calendar service
+│   ├── main.py              # FastMCP calendar service
+│   ├── agent.py             # Agent class with DID support
+│   └── ...
+│
+└── registry/                # Agent registry (if applicable)
 ```
 
-✅ **Requirements:**
+## 🚀 Quick Start
 
-* Your agent must expose a REST or MCP-compatible endpoint.  
-* It must support at least `POST /propose`, `POST /accept`, and `POST /reject`.  
-* It should update its calendar state and return a confirmation payload.
+### Prerequisites
 
-### **Step 2\. Register on MCP Context Forge**
+- **Python 3.11+** (for calendar-agent) or **Python 3.12+** (for mcp-calendar-service)
+- **uv** package manager ([install uv](https://github.com/astral-sh/uv))
+- **Git**
 
-Once your agent is running:
+### Option 1: Calendar Agent (Recommended)
 
-1. Visit the **Registry Portal**  
-2. Submit your agent metadata (AgentFacts)  
-3. Verify that your agent appears on the global **Agent Registry**  
-4. Confirm that your MCP Context is properly forged and visible to others
+The calendar agent is a full-featured implementation with:
+- **Streamlit UI** for managing calendar events
+- **DID Peer 2** support for decentralized identity
+- **MCP Server** on port 8000
+- **A2A Server** merged with MCP on port 8000
+- **AgentFacts** metadata endpoint
+- **ngrok** support for public URLs
 
-### **Step 3\. Create Calendar Invites\!**
+#### Setup and Run
 
-Use the provided **Base Calendar Negotiation Protocol** to:
+```bash
+cd calendar-agent
 
-* Propose meetings with other agents  
-* Accept proposals automatically or semi-automatically  
-* Track all events (successful, pending, failed)
+# Install dependencies using uv
+uv sync
 
-Example Protocol:
+# Run the application
+uv run streamlit run main.py
+```
 
-`AgentA → AgentB: PROPOSE { "time": "2025-10-27T14:00Z", "duration": "30m" }`  
-`AgentB → AgentA: ACCEPT { "event_id": "evt-932" }`  
-`AgentA → Calendar: CONFIRM { "status": "booked" }`
+The application will:
+- Start the Streamlit UI at `http://localhost:8501`
+- Start the MCP/A2A server on port 8000
+- Generate a `did:peer:2` identifier for the agent
+- Create ngrok tunnels (if available) for public endpoints
 
-🧩 **Objective:**
+#### Access Points
 
-* Book **10+ successful meetings** with *unique* agents.  
-* Avoid “no-show” or “bad” agents who don’t confirm.
+- **Streamlit UI**: http://localhost:8501
+- **MCP Server (SSE)**: http://localhost:8000/sse
+- **AgentFacts**: http://localhost:8000/.well-known/agentfacts.json
+- **A2A Agent Card**: http://localhost:8000/.well-known/agent-card.json
+- **Health Check**: http://localhost:8000/health
 
-**📊 Leaderboard Rules**
+### Option 2: MCP Calendar Service
 
-| Metric | Description | Points |
-| ----- | ----- | ----- |
-| ✅ Successful Meeting | Both agents confirmed and logged | \+10 |
-| ⚠️ Failed / No-Show | Partner agent failed to appear | \-5 |
-| 🔁 Duplicate Partner | Attempted multiple meetings with the same agent | \-2 |
-| 💡 Trust Mitigation | Implemented a working mitigation (verified) | \+5 |
+A standalone MCP calendar service without the UI.
 
-The leaderboard automatically ranks agents by **total points** and **error rate**.
+#### Setup and Run
 
-**💡 Mitigation Strategies (Hint Section)**
+```bash
+cd mcp-calendar-service
 
-You’ll discuss and optionally implement these in the second half of the workshop:
+# Install dependencies
+uv sync
 
-* **Reputation Systems:** Track which agents have completed successful meetings.  
-* **Attestation Layers:** Require signatures or proofs before confirming.  
-* **Trust Scores:** Dynamically adjust who your agent accepts meetings from.  
-* **Rate Limits:** Throttle meeting attempts to suspicious agents.  
-* **Policy Hooks:** Integrate your own lightweight OPA-like checks.
+# Run the service
+uv run main.py
+```
 
-## **⏱️ Workshop Schedule**
+The service will start on port 8000 with the MCP endpoint at `/mcp/calendar`.
 
-| Time | Segment | Description |
-| ----- | ----- | ----- |
-| 0:00 \- 0:15 | **Kickoff & Setup** | Introduce the scenario, set up infrastructure access, explain the rules. |
-| 0:15 \- 0:45 | **Agent Build Sprint** | Participants implement their calendar agents with `AgentFacts`. |
-| 0:45 \- 1:15 | **Registration & Negotiation Begins** | Register agents and start scheduling meetings. |
-| 1:15 \- 1:45 | **Chaos Phase** | “Bad” agents appear in the marketplace — expect missed invites and errors. |
-| 1:45 \- 2:00 | **Debrief & Leaderboard Results** | Review metrics, leaderboard, and share mitigation strategies. |
+## 🔑 Key Features
 
-## **🧩 Discussion Prompts (for Debrief)**
+### DID Peer 2 Support
 
-* What patterns helped you identify unreliable agents?  
-* How did you prioritize transactions under uncertainty?  
-* What data would improve your agent’s decision-making?  
-* How could registries, credentials, or DIDs help build trust between agents?  
-* What would an **Agent Reputation Network** look like in the real world?
+The agent automatically generates a `did:peer:2` identifier on startup. This DID:
+- Is stored in `agent_did.txt`
+- Includes service endpoints (A2A and MCP) when ngrok URLs are available
+- Can be resolved to a DID document
+- Is used as the `agent_id` in AgentFacts
 
-## **🧠 Stretch Goals (Optional)**
+### AgentFacts
 
-* Add **attestation verification** before booking a meeting.  
-* Introduce a **trust decay model** based on missed meetings.  
-* Visualize your agent’s interaction graph over time.  
-* Register your agent in an external network (e.g., MCP Context Forge Sandbox).
+AgentFacts provide metadata about the agent:
+- Core identity (agent_id, name, version)
+- Baseline model information
+- Classification (agent type, operational level)
+- Capabilities (tools, interfaces, protocols)
+- A2A configuration
 
-## **🏁 Completion Criteria**
+Access AgentFacts at: `http://localhost:8000/.well-known/agentfacts.json`
 
-You’ve successfully completed the workshop when:
+### MCP Tools
 
-* Your agent has registered with valid AgentFacts  
-* You’ve booked **10+ successful meetings**  
-* You’ve logged **100 total transactions** (including failed ones)  
-* You’ve proposed a **mitigation** against no-show agents
+The MCP server exposes these tools:
+- `requestAvailableSlots` - Find available time slots
+- `requestBooking` - Book a meeting
+- `deleteBooking` - Delete a booking
+
+### A2A Protocol
+
+The A2A server is merged with the MCP server and provides:
+- Agent card at `/.well-known/agent-card.json`
+- Request handling at `/a2a/request`
+- Same tools as MCP (requestAvailableSlots, requestBooking, deleteBooking)
+
+### ngrok Integration
+
+If `pyngrok` is installed and configured, the agent will:
+- Create public URLs for A2A and MCP endpoints
+- Add these public URLs to the DID document
+- Fall back to localhost if ngrok is unavailable
+
+## 📋 Configuration
+
+### Agent Configuration
+
+Edit `calendar-agent/agent.py` or `mcp-calendar-service/agent.py` to customize:
+- Agent name
+- Host and ports
+- Service endpoints
+
+### AgentFacts Configuration
+
+1. Start the Streamlit UI
+2. Click "Configure AgentFacts" in the sidebar
+3. Fill in your agent's metadata
+4. Save the configuration
+
+The AgentFacts are stored in `calendar-agent/agentfacts.json`.
+
+## 🛠️ Development
+
+### Project Structure
+
+**calendar-agent/**
+- `main.py` - Entry point that initializes agent, MCP server, and Streamlit UI
+- `server.py` - MCP server implementation with merged A2A support
+- `agent.py` - Agent class managing DID and service endpoints
+- `agentfacts.py` - AgentFacts loading and saving
+- `did_peer2.py` - did:peer:2 specification implementation
+- `ui.py` - Streamlit UI for calendar management
+- `calendar_module.py` - Calendar business logic
+- `db_adapter.py` - Database persistence
+
+**mcp-calendar-service/**
+- `main.py` - FastMCP calendar service
+- `agent.py` - Agent class with DID support
+- `did_peer2.py` - did:peer:2 implementation
+
+### Adding New Tools
+
+1. Add the tool function to `server.py` with the `@mcp.tool` decorator
+2. Add corresponding handler in `a2a-server.py` if needed
+3. Update the agent card in `a2a-server.py` to include the new tool
+
+### Customizing DID
+
+The DID is generated using Ed25519 keys. To customize:
+1. Modify `_get_or_create_did()` in `agent.py`
+2. Adjust key purposes (authentication, key agreement, etc.)
+3. Update service endpoints as needed
+
+## 🔍 Troubleshooting
+
+### Port Already in Use
+
+If port 8000 is already in use:
+```python
+# Edit agent initialization in main.py or server.py
+agent = Agent(name="Calendar Agent", host="localhost", a2a_port=8001, mcp_port=8001)
+```
+
+### ngrok Not Working
+
+If ngrok is not available:
+- The agent will fall back to localhost URLs
+- Service endpoints in the DID will only be added when ngrok URLs are available
+- Install ngrok: `pip install pyngrok` or `uv add pyngrok`
+
+### DID Not Generating
+
+Check:
+1. `did_peer2.py` is present in the project
+2. Dependencies are installed: `uv sync`
+3. Check console output for error messages
+
+### AgentFacts Not Found
+
+Ensure:
+1. `agentfacts.json` exists (created automatically on first run)
+2. The Streamlit UI has been run at least once
+3. Check file permissions
+
+## 📚 Additional Resources
+
+- [DID Peer 2 Specification](https://identity.foundation/peer-did-method-spec/)
+- [MCP Documentation](https://modelcontextprotocol.io/)
+- [A2A Protocol](https://a2a-protocol.org)
+- [AgentFacts Schema](https://agentfacts.org)
+
+## 🎯 Workshop Goals
+
+This implementation demonstrates:
+- ✅ DID-based agent identity
+- ✅ MCP protocol integration
+- ✅ A2A protocol support
+- ✅ AgentFacts metadata
+- ✅ Calendar booking and scheduling
+- ✅ Public endpoint exposure via ngrok
+
+## 📝 License
+
+See the main repository LICENSE file.

@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 import importlib.util
 
-# Import A2A SDK - no conflict since this file is named a2a-server.py
+# Import A2A SDK
 A2A_AVAILABLE = False
 A2AServer = None
 AgentCard = None

@@ -24,9 +24,7 @@ server_module = importlib.util.module_from_spec(server_spec)
 server_spec.loader.exec_module(server_module)
 
 # Import A2A server
-a2a_spec = importlib.util.spec_from_file_location("a2a_server", os.path.join(os.path.dirname(__file__), "a2a-server.py"))
-a2a_module = importlib.util.module_from_spec(a2a_spec)
-a2a_spec.loader.exec_module(a2a_module)
+import a2a_server as a2a_module
 
 # Initialize MCP server in background thread (only once per Streamlit session)
 if 'mcp_server_started' not in st.session_state:
