@@ -3,6 +3,13 @@ import streamlit as st
 import threading
 import os
 import importlib.util
+from pathlib import Path
+
+# Import Agent class
+from agent import Agent
+
+# Initialize agent with DID Peer
+agent = Agent(name="Calendar Agent", host="localhost", a2a_port=10000, mcp_port=8000)
 
 # Import MCP server
 server_spec = importlib.util.spec_from_file_location("server", os.path.join(os.path.dirname(__file__), "server.py"))

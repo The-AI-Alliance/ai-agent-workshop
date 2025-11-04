@@ -8,6 +8,11 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from agent import Agent
+
+# Initialize agent with DID Peer
+agent = Agent(name="Calendar Service", host="localhost", a2a_port=10000, mcp_port=8000)
+
 app = fastmcp.FastMCP(name="Calendar Service",stateless_http=True)
 
 http_middleware = [
@@ -22,11 +27,25 @@ http_middleware = [
 
 @app.custom_route("/", methods=["GET"])
 async def read_root(_: Request) -> JSONResponse:
-    return JSONResponse({"message": "Hello from FastMCP!"})
+    return JSONResponse({
+        "message": "Hello from FastMCP!",
+        "did": agent.get_did(),
+        "services": agent.get_service_endpoints()
+    })
 
 @app.custom_route("/", methods=["POST"])
 async def read_root(_: Request) -> JSONResponse:
     return JSONResponse({"message": "OK!"})
+
+@app.custom_route("/did", methods=["GET"])
+async def get_did(_: Request) -> JSONResponse:
+    """Get the agent's DID Peer identifier."""
+    return JSONResponse({"did": agent.get_did()})
+
+@app.custom_route("/services", methods=["GET"])
+async def get_services(_: Request) -> JSONResponse:
+    """Get the agent's service endpoints."""
+    return JSONResponse(agent.get_service_endpoints())
 
 @app.tool("request_meeting")
 def request_meeting(requester: str, start: datetime, duration: int, message: str) -> str:
@@ -76,4 +95,11 @@ def request_meeting(requester: str, start: datetime, duration: int, message: str
 
 
 if __name__ == "__main__":
+    print(f"\n{'='*60}")
+    print(f"🚀 Starting MCP Calendar Service")
+    print(f"📋 Agent DID: {agent.get_did()}")
+    print(f"🔗 Service Endpoints:")
+    for service_name, endpoint in agent.get_service_endpoints().items():
+        print(f"   {service_name}: {endpoint}")
+    print(f"{'='*60}\n")
     app.run(transport="streamable-http", middleware=http_middleware,path="/mcp/calendar")

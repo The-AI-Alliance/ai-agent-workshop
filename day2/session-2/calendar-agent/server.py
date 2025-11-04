@@ -8,6 +8,12 @@ from pathlib import Path
 # Add current directory to path to import local modules
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Import Agent class
+from agent import Agent
+
+# Initialize agent with DID Peer
+agent = Agent(name="Calendar Agent", host="localhost", a2a_port=10000, mcp_port=8000)
+
 # Import local modules
 import importlib.util
 spec = importlib.util.spec_from_file_location("calendar_module", Path(__file__).parent / "calendar_module.py")
@@ -340,7 +346,13 @@ def run_mcp_server(host: str = "localhost", port: int = 8000):
         The URL of the MCP server
     """
     server_url = f"http://{host}:{port}/sse"
+    print(f"\n{'='*60}")
     print(f"🚀 Starting MCP Server with SSE transport on {server_url}")
+    print(f"📋 Agent DID: {agent.get_did()}")
+    print(f"🔗 Service Endpoints:")
+    for service_name, endpoint in agent.get_service_endpoints().items():
+        print(f"   {service_name}: {endpoint}")
+    print(f"{'='*60}\n")
     # FastMCP accepts transport kwargs for HTTP-based transports
     try:
         mcp.run(transport="sse", host=host, port=port)

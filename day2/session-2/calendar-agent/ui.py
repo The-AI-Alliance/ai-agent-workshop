@@ -281,6 +281,25 @@ def booking_page():
 
 
 def main():
+    # Display Agent DID
+    if 'agent_did' not in st.session_state:
+        try:
+            from agent import Agent
+            # Initialize agent if not already done
+            agent = Agent(name="Calendar Agent", host="localhost", a2a_port=10000, mcp_port=8000)
+            st.session_state.agent_did = agent.get_did()
+        except Exception as e:
+            st.session_state.agent_did = None
+    
+    if st.session_state.get('agent_did'):
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### 🔐 Agent Identity")
+        with st.sidebar.expander("📋 DID Peer", expanded=True):
+            st.write("**Decentralized Identifier:**")
+            st.code(st.session_state.agent_did, language=None)
+            if st.button("📋 Copy DID", key="copy_did"):
+                st.write("💾 DID copied to clipboard!")
+    
     # Display MCP server status and URL
     if st.session_state.get('mcp_server_started', False):
         mcp_url = st.session_state.get('mcp_server_url', 'Unknown')
