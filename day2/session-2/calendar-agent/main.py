@@ -32,7 +32,8 @@ if 'mcp_server_started' not in st.session_state:
         # Default MCP server configuration
         MCP_HOST = "localhost"
         MCP_PORT = 8000
-        MCP_URL = f"http://{MCP_HOST}:{MCP_PORT}/sse"
+        # MCP server is mounted under /mcp
+        MCP_URL = f"http://{MCP_HOST}:{MCP_PORT}/mcp"
         
         def run_mcp_server():
             try:

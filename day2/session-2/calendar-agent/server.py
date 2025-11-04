@@ -34,6 +34,7 @@ BookingPreferences = calendar_module.BookingPreferences
 CalendarDBAdapter = db_adapter_module.CalendarDBAdapter
 
 # Initialize MCP server with HTTP support for custom routes
+# Note: stateless_http=True enables HTTP endpoints, but SSE still needs proper transport
 mcp = FastMCP("Calendar Agent MCP Server", stateless_http=True)
 
 # Add AgentFacts endpoint
@@ -52,8 +53,8 @@ async def get_agentfacts(_: Request) -> JSONResponse:
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
-# Add A2A agent card endpoint (merged from A2A server)
-@mcp.custom_route("/.well-known/agent-card.json", methods=["GET"])
+# Add A2A agent card endpoint (merged from A2A server) under /a2a
+@mcp.custom_route("/a2a/.well-known/agent-card.json", methods=["GET"])
 async def get_agent_card(_: Request) -> JSONResponse:
     """Serve A2A agent card."""
     try:
@@ -74,11 +75,14 @@ async def health_check(_: Request) -> JSONResponse:
         "status": "healthy",
         "service": "Calendar Agent MCP/A2A Server",
         "endpoints": {
-            "mcp_sse": f"http://localhost:8000/sse",
-            "agent_card": f"http://localhost:8000/.well-known/agent-card.json",
-            "agentfacts": f"http://localhost:8000/.well-known/agentfacts.json"
+            "mcp": "http://localhost:8000/mcp",
+            "a2a": "http://localhost:8000/a2a",
+            "agent_card": "http://localhost:8000/a2a/.well-known/agent-card.json",
+            "agentfacts": "http://localhost:8000/.well-known/agentfacts.json"
         }
     })
+
+# All A2A routes are now under /a2a prefix (already set in the routes above)
 
 # Add A2A request handling endpoint (for tool calls)
 @mcp.custom_route("/a2a/request", methods=["POST"])
@@ -431,7 +435,8 @@ def run_mcp_server(host: str = "localhost", port: int = 8000):
     Returns:
         The URL of the MCP server
     """
-    server_url = f"http://{host}:{port}/sse"
+    # MCP server is mounted under /mcp path
+    server_url = f"http://{host}:{port}/mcp"
     print(f"\n{'='*60}")
     print(f"🚀 Starting MCP Server with merged A2A on port {port}")
     print(f"📋 Agent DID: {agent.get_did()}")
@@ -450,7 +455,8 @@ def run_mcp_server(host: str = "localhost", port: int = 8000):
         # A2A routes are integrated directly into FastMCP via custom_route decorators above
         # No need to create a separate FastAPI app - everything runs on the same port
         print(f"✅ A2A functionality integrated into MCP server")
-        print(f"   A2A agent card: http://{host}:{port}/.well-known/agent-card.json")
+        print(f"   MCP endpoint: http://{host}:{port}/mcp")
+        print(f"   A2A agent card: http://{host}:{port}/a2a/.well-known/agent-card.json")
         print(f"   A2A requests: http://{host}:{port}/a2a/request")
         
         http_middleware = [
@@ -464,7 +470,9 @@ def run_mcp_server(host: str = "localhost", port: int = 8000):
         ]
         
         # Run with streamable-http to support both SSE and custom routes
-        mcp.run(transport="streamable-http", middleware=http_middleware, host=host, port=port)
+        # Mount MCP server under /mcp path
+        mcp.run(transport="streamable-http", middleware=http_middleware, host=host, port=port, path="/mcp")
+        print(f"✅ MCP server running at http://{host}:{port}/mcp (SSE endpoint)")
     except Exception as e:
         print(f"⚠️ Error running MCP server: {e}")
         import traceback
