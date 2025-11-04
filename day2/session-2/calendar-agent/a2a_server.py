@@ -15,17 +15,23 @@ import importlib.util
 A2A_AVAILABLE = False
 A2AServer = None
 AgentCard = None
-Tool = None
-Skill = None
+AgentSkill = None
+AgentCapabilities = None
 A2AStarletteApplication = None
-RequestHandler = None
-RESTHandler = None
+DefaultRequestHandler = None
+InMemoryTaskStore = None
+AgentExecutor = None
+RequestContext = None
+EventQueue = None
 uvicorn = None
 
 try:
-    from a2a.types import AgentCard as A2AAgentCard, AgentSkill, AgentCapabilities
-    from a2a.server.apps.rest.fastapi_app import A2ARESTFastAPIApplication as A2AFastAPIApp
-    from a2a.server.request_handlers.request_handler import RequestHandler as A2ARequestHandler
+    from a2a.types import AgentCard as A2AAgentCard, AgentSkill as A2AAgentSkill, AgentCapabilities as A2AAgentCapabilities
+    from a2a.server.apps import A2AStarletteApplication as A2AStarletteApp
+    from a2a.server.request_handlers import DefaultRequestHandler as A2ADefaultRequestHandler
+    from a2a.server.tasks import InMemoryTaskStore as A2AInMemoryTaskStore
+    from a2a.server.agent_execution import AgentExecutor as A2AAgentExecutor, RequestContext as A2ARequestContext
+    from a2a.server.events import EventQueue as A2AEventQueue
     
     try:
         import uvicorn
@@ -34,8 +40,14 @@ try:
     
     A2A_AVAILABLE = True
     AgentCard = A2AAgentCard
-    A2ARESTFastAPIApplication = A2AFastAPIApp
-    RequestHandler = A2ARequestHandler
+    AgentSkill = A2AAgentSkill
+    AgentCapabilities = A2AAgentCapabilities
+    A2AStarletteApplication = A2AStarletteApp
+    DefaultRequestHandler = A2ADefaultRequestHandler
+    InMemoryTaskStore = A2AInMemoryTaskStore
+    AgentExecutor = A2AAgentExecutor
+    RequestContext = A2ARequestContext
+    EventQueue = A2AEventQueue
     
     print("✅ A2A SDK imported successfully")
 except Exception as e:
@@ -142,7 +154,9 @@ def create_agent_card(host: str = "localhost", port: int = 10000):
     if not A2A_AVAILABLE or not AgentCard or not AgentSkill or not AgentCapabilities:
         raise RuntimeError("A2A SDK not available. Cannot create AgentCard.")
     
-    url = os.getenv("A2A_ENDPOINT", f"http://{host}:{port}")
+    # URL should point to /a2a/ (with trailing slash) to avoid redirect issues
+    # This ensures the client POSTs directly to /a2a/ instead of /a2a (which redirects)
+    url = os.getenv("A2A_ENDPOINT", f"http://{host}:{port}/a2a/")
     
     # Create tools list (tools are stored as part of the skill's additional data)
     # Note: Tools are not directly part of AgentSkill in A2A spec, but we can store them
@@ -436,67 +450,208 @@ def handle_delete_booking(tool_input: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
-class SimpleCalendarRequestHandler(RequestHandler if RequestHandler else object):
-    """A simple request handler for calendar operations."""
+class CalendarAgentExecutor(AgentExecutor if AgentExecutor else object):
+    """Agent executor for calendar operations using OpenAI to process messages and call tools."""
     
     def __init__(self):
-        if RequestHandler:
+        if AgentExecutor:
             super().__init__()
+        
+        # Initialize OpenAI client
+        import os
+        from openai import AsyncOpenAI
+        
+        api_key = os.getenv('OPENAI_KEY')
+        if not api_key:
+            raise ValueError('OPENAI_KEY environment variable not set')
+        
+        self.client = AsyncOpenAI(api_key=api_key)
+        self.model = 'gpt-4o'  # or 'gpt-4', 'gpt-3.5-turbo', etc.
+        
+        # Define tools in OpenAI format
+        self.tools = [
+            {
+                'type': 'function',
+                'function': {
+                    'name': 'requestAvailableSlots',
+                    'description': 'Get available time slots for booking within a date range',
+                    'parameters': {
+                        'type': 'object',
+                        'required': ['start_date', 'end_date'],
+                        'properties': {
+                            'start_date': {
+                                'type': 'string',
+                                'format': 'date',
+                                'description': 'Start date for availability check (YYYY-MM-DD)'
+                            },
+                            'end_date': {
+                                'type': 'string',
+                                'format': 'date',
+                                'description': 'End date for availability check (YYYY-MM-DD)'
+                            },
+                            'duration': {
+                                'type': 'string',
+                                'default': '30m',
+                                'description': "Desired meeting duration (e.g., '30m', '1h', '45m')"
+                            },
+                            'partner_agent_id': {
+                                'type': 'string',
+                                'description': 'Optional partner agent ID to filter availability'
+                            },
+                            'timezone': {
+                                'type': 'string',
+                                'default': 'UTC',
+                                'description': 'Timezone for the availability check'
+                            }
+                        }
+                    }
+                }
+            },
+            {
+                'type': 'function',
+                'function': {
+                    'name': 'requestBooking',
+                    'description': 'Request a booking for a meeting at a specific time',
+                    'parameters': {
+                        'type': 'object',
+                        'required': ['start_time', 'duration', 'partner_agent_id'],
+                        'properties': {
+                            'start_time': {
+                                'type': 'string',
+                                'format': 'date-time',
+                                'description': 'Start time in ISO format (e.g., 2025-01-15T10:00:00Z)'
+                            },
+                            'duration': {
+                                'type': 'string',
+                                'description': "Meeting duration (e.g., '30m', '1h', '45m')"
+                            },
+                            'partner_agent_id': {
+                                'type': 'string',
+                                'description': 'Agent ID of the partner requesting the meeting'
+                            },
+                            'initial_status': {
+                                'type': 'string',
+                                'enum': ['proposed', 'accepted', 'confirmed'],
+                                'default': 'proposed',
+                                'description': 'Initial status of the booking'
+                            }
+                        }
+                    }
+                }
+            },
+            {
+                'type': 'function',
+                'function': {
+                    'name': 'deleteBooking',
+                    'description': 'Delete or cancel a booking by event ID',
+                    'parameters': {
+                        'type': 'object',
+                        'required': ['event_id'],
+                        'properties': {
+                            'event_id': {
+                                'type': 'string',
+                                'description': 'The event ID to delete'
+                            }
+                        }
+                    }
+                }
+            }
+        ]
+        
+        self.system_prompt = """You are a calendar management agent that helps users find available time slots, book meetings, and manage calendar events.
+
+You have access to three tools:
+1. requestAvailableSlots - Find available time slots within a date range
+2. requestBooking - Book a meeting at a specific time
+3. deleteBooking - Cancel or delete a booking
+
+When users ask about availability or want to book meetings, use the appropriate tools to help them.
+Always provide helpful and clear responses based on the tool results."""
     
-    async def on_get_task(self, params, context=None):
-        from a2a.utils.errors import ServerError
-        from a2a.types import TaskNotFoundError
-        raise ServerError(error=TaskNotFoundError())
+    async def execute(
+        self,
+        context: RequestContext if RequestContext else Any,
+        event_queue: EventQueue if EventQueue else Any,
+    ) -> None:
+        """Execute calendar agent logic based on the request context."""
+        if not A2A_AVAILABLE:
+            if event_queue:
+                await event_queue.enqueue_event({
+                    "type": "text",
+                    "content": "Calendar agent: A2A SDK not available"
+                })
+            return
+        
+        from a2a.utils import new_agent_text_message
+        from a2a.types import TextPart
+        
+        # Extract message text from context.message.parts (following github-agent pattern)
+        # See: https://github.com/a2aproject/a2a-samples/blob/main/samples/python/agents/github-agent/openai_agent_executor.py
+        message_text = ''
+        if hasattr(context, 'message') and context.message:
+            if hasattr(context.message, 'parts'):
+                # Extract text from all TextPart objects (like github-agent does)
+                for part in context.message.parts:
+                    if hasattr(part, 'root') and isinstance(part.root, TextPart):
+                        message_text += part.root.text
+                    elif isinstance(part, TextPart):
+                        message_text += part.text
+                    elif hasattr(part, 'text'):
+                        message_text += part.text
+            elif hasattr(context.message, 'content'):
+                message_text = str(context.message.content)
+            elif isinstance(context.message, dict):
+                message_text = str(context.message.get('content', ''))
+        
+        # For now, we'll return a simple response based on the message
+        # TODO: Integrate with OpenAI or another LLM to process the message and generate tool calls
+        # The github-agent example shows how to use OpenAI to interpret messages and call tools
+        
+        # Simple keyword-based response for now
+        message_lower = message_text.lower().strip() if message_text else ""
+        
+        if not message_text:
+            response_text = "Calendar agent ready. I can help you find available slots, book meetings, and manage calendar events."
+        elif any(keyword in message_lower for keyword in ['available', 'slot', 'availability', 'free time']):
+            response_text = "To check available slots, please use the requestAvailableSlots tool with start_date, end_date, and duration parameters."
+        elif any(keyword in message_lower for keyword in ['book', 'schedule', 'meeting', 'appointment']):
+            response_text = "To book a meeting, please use the requestBooking tool with start_time, duration, and partner_agent_id parameters."
+        elif any(keyword in message_lower for keyword in ['cancel', 'delete', 'remove']):
+            response_text = "To cancel a booking, please use the deleteBooking tool with the event_id parameter."
+        else:
+            response_text = f"I received your message: '{message_text}'. To interact with the calendar, please use the available tools: requestAvailableSlots, requestBooking, or deleteBooking."
+        
+        # Send response
+        if event_queue:
+            await event_queue.enqueue_event(new_agent_text_message(response_text))
     
-    async def on_cancel_task(self, params, context=None):
-        from a2a.utils.errors import ServerError
-        from a2a.types import TaskNotFoundError
-        raise ServerError(error=TaskNotFoundError())
-    
-    async def on_message_send(self, params, context=None):
-        # TODO: Implement proper tool handling
-        from a2a.types import Message, Task
-        # For now, return a simple message
-        return Message(content="Calendar agent ready")
-    
-    async def on_message_send_stream(self, params, context=None):
-        from a2a.utils.errors import ServerError
-        from a2a.types import UnsupportedOperationError
-        raise ServerError(error=UnsupportedOperationError())
-    
-    async def on_set_task_push_notification_config(self, params, context=None):
-        return params
-    
-    async def on_get_task_push_notification_config(self, params, context=None):
-        from a2a.utils.errors import ServerError
-        from a2a.types import TaskNotFoundError
-        raise ServerError(error=TaskNotFoundError())
-    
-    async def on_resubscribe_to_task(self, params, context=None):
-        from a2a.utils.errors import ServerError
-        from a2a.types import UnsupportedOperationError
-        raise ServerError(error=UnsupportedOperationError())
-    
-    async def on_delete_task_push_notification_config(self, params, context=None):
-        from a2a.utils.errors import ServerError
-        from a2a.types import TaskNotFoundError
-        raise ServerError(error=TaskNotFoundError())
-    
-    async def on_list_task_push_notification_config(self, params, context=None):
-        return []
+    async def cancel(
+        self, 
+        context: RequestContext if RequestContext else Any, 
+        event_queue: EventQueue if EventQueue else Any
+    ) -> None:
+        """Cancel the current execution."""
+        if not A2A_AVAILABLE or not event_queue:
+            return
+        
+        from a2a.utils import new_agent_text_message
+        await event_queue.enqueue_event(new_agent_text_message("Calendar agent operation cancelled."))
 
 
-def create_a2a_server(host: str = "localhost", port: int = 10000) -> Optional[Any]:
+def create_a2a_server(host: str = "localhost", port: int = 8000) -> Optional[Any]:
     """Create and configure the A2A server using the actual SDK.
+    
+    This follows the pattern from the official A2A samples:
+    https://github.com/a2aproject/a2a-samples/blob/main/samples/python/agents/helloworld/__main__.py
     
     Args:
         host: Host to bind the server to
         port: Port to bind the server to
         
     Returns:
-        FastAPI app instance configured with A2A, or None if SDK not available
+        Starlette app instance configured with A2A, or None if SDK not available
     """
-    if not A2A_AVAILABLE or not A2ARESTFastAPIApplication or not AgentCard:
+    if not A2A_AVAILABLE or not A2AStarletteApplication or not AgentCard or not DefaultRequestHandler:
         print("❌ A2A SDK not available. Cannot create A2A server.")
         print("   Install with: uv add 'a2a-sdk[http-server]'")
         print("   Or: pip install 'a2a-sdk[http-server]'")
@@ -505,60 +660,117 @@ def create_a2a_server(host: str = "localhost", port: int = 10000) -> Optional[An
     try:
         # Create agent card from dict
         agent_card_dict = create_agent_card(host=host, port=port)
+        # URL should include /a2a path since we mount at /a2a
+        # Use the URL from agent_card_dict which should have trailing slash
+        url = agent_card_dict.get('url', f"http://{host}:{port}/a2a/")
         
+        # Create AgentSkill for calendar booking
+        calendar_skill = None
+        if AgentSkill:
+            calendar_skill = AgentSkill(
+                id='calendar_booking',
+                name='Calendar Booking',
+                description='Tools for calendar booking and scheduling',
+                tags=['calendar', 'scheduling', 'booking', 'meetings', 'availability'],
+                examples=['find available slots', 'book a meeting', 'schedule a call']
+            )
+        
+        # Create AgentCard object
         try:
-            # Convert dict to AgentCard object
-            agent_card = AgentCard.model_validate(agent_card_dict)
+            # Build AgentCard from dict
+            # Use URL from dict - keep trailing slash to avoid redirect issues
+            # The A2A SDK/AgentCard should accept URLs with trailing slashes
+            agent_card_url = url.rstrip('/')  # Remove trailing slash for AgentCard object
+            agent_card = AgentCard(
+                name=agent_card_dict.get('name', 'Calendar Agent'),
+                description=agent_card_dict.get('description', 'Calendar management agent'),
+                url=agent_card_url,
+                version=agent_card_dict.get('version', '0.1.0'),
+                default_input_modes=agent_card_dict.get('defaultInputModes', ['text']),
+                default_output_modes=agent_card_dict.get('defaultOutputModes', ['text']),
+                capabilities=AgentCapabilities(
+                    streaming=agent_card_dict.get('capabilities', {}).get('streaming', False),
+                    push_notifications=agent_card_dict.get('capabilities', {}).get('pushNotifications', False),
+                    state_transition_history=agent_card_dict.get('capabilities', {}).get('stateTransitionHistory', False)
+                ),
+                skills=[calendar_skill] if calendar_skill else []
+            )
         except Exception as e:
             print(f"⚠️  Could not create AgentCard object: {e}")
-            print("   Using dict directly...")
-            # Try to construct from dict fields
-            try:
-                agent_card = AgentCard(**agent_card_dict)
-            except Exception:
-                print("❌ Failed to create AgentCard. Check agent card structure.")
-                return None
+            import traceback
+            traceback.print_exc()
+            return None
         
-        # Create request handler
-        request_handler = SimpleCalendarRequestHandler()
+        # Create agent executor
+        agent_executor = CalendarAgentExecutor()
         
-        # Create A2A FastAPI application
-        a2a_app = A2ARESTFastAPIApplication(
+        # Create request handler with executor and task store
+        request_handler = DefaultRequestHandler(
+            agent_executor=agent_executor,
+            task_store=InMemoryTaskStore() if InMemoryTaskStore else None
+        )
+        
+        # Create A2A Starlette application (following the example pattern)
+        a2a_server = A2AStarletteApplication(
             agent_card=agent_card,
             http_handler=request_handler
         )
         
-        # Build the FastAPI app - this automatically adds .well-known/agent-card.json route!
-        fastapi_app = a2a_app.build()
+        # Build the Starlette app - this automatically adds .well-known/agent-card.json route!
+        starlette_app = a2a_server.build()
+        
+        # Add root endpoint handler for GET requests only
+        # POST requests should go to SDK routes like /messages/send
+        # The SDK will handle routing for POST requests
+        # Note: We only handle GET here to avoid interfering with SDK POST routes
+        @starlette_app.route("/", methods=["GET"])
+        async def root_endpoint(request):
+            """Root endpoint for A2A server - handles GET requests to /a2a/."""
+            from starlette.responses import JSONResponse
+            # Use the agent card URL (without trailing slash) for endpoint references
+            base_url = agent_card.url if hasattr(agent_card, 'url') else url.rstrip('/')
+            return JSONResponse({
+                "service": "Calendar Agent A2A Server",
+                "version": agent_card.version,
+                "protocol": "A2A",
+                "url": base_url,
+                "endpoints": {
+                    "agent_card": f"{base_url}/.well-known/agent-card.json",
+                    "messages": f"{base_url}/messages",
+                    "tasks": f"{base_url}/tasks"
+                }
+            })
         
         # Add health check endpoint
-        @fastapi_app.get("/health")
-        async def health_check():
+        @starlette_app.route("/health", methods=["GET"])
+        async def health_check(request):
             """Health check endpoint for the A2A server."""
-            return {
+            from starlette.responses import JSONResponse
+            return JSONResponse({
                 "status": "healthy",
                 "service": "Calendar Agent A2A Server",
                 "agent_card": {
-                    "name": agent_card.name if hasattr(agent_card, 'name') else "Calendar Agent",
-                    "version": agent_card.version if hasattr(agent_card, 'version') else "0.1.0",
-                    "url": agent_card.url if hasattr(agent_card, 'url') else url
+                    "name": agent_card.name,
+                    "version": agent_card.version,
+                    "url": agent_card.url
                 },
                 "endpoints": {
-                    "health": f"http://{host}:{port}/health",
-                    "agent_card": f"http://{host}:{port}/.well-known/agent-card.json"
+                    "health": f"{url}/health",
+                    "agent_card": f"{url}/.well-known/agent-card.json"
                 }
-            }
+            })
         
-        print(f"✅ A2A FastAPI app created")
-        print(f"📍 Agent card will be served at: http://{host}:{port}/.well-known/agent-card.json")
-        print(f"💚 Health check available at: http://{host}:{port}/health")
+        print(f"✅ A2A Starlette app created (following official example pattern)")
+        print(f"📍 Agent card will be served at: {url}/.well-known/agent-card.json")
+        print(f"💚 Health check available at: {url}/health")
+        print(f"🔗 A2A endpoints available at: {url}/a2a")
         
         # Store app and config for later
-        fastapi_app._a2a_host = host
-        fastapi_app._a2a_port = port
-        fastapi_app._a2a_agent_card = agent_card
+        starlette_app._a2a_host = host
+        starlette_app._a2a_port = port
+        starlette_app._a2a_agent_card = agent_card
         
-        return fastapi_app
+        return starlette_app
         
     except Exception as e:
         print(f"❌ Failed to create A2A server: {e}")

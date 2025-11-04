@@ -53,8 +53,8 @@ async def get_agentfacts(_: Request) -> JSONResponse:
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
-# Add A2A agent card endpoint (merged from A2A server) under /a2a
-@mcp.custom_route("/a2a/.well-known/agent-card.json", methods=["GET"])
+# Add A2A agent card endpoint (merged from A2A server)
+@mcp.custom_route("/.well-known/agent-card.json", methods=["GET"])
 async def get_agent_card(_: Request) -> JSONResponse:
     """Serve A2A agent card."""
     try:
@@ -77,7 +77,7 @@ async def health_check(_: Request) -> JSONResponse:
         "endpoints": {
             "mcp": "http://localhost:8000/mcp",
             "a2a": "http://localhost:8000/a2a",
-            "agent_card": "http://localhost:8000/a2a/.well-known/agent-card.json",
+            "agent_card": "http://localhost:8000/.well-known/agent-card.json",
             "agentfacts": "http://localhost:8000/.well-known/agentfacts.json"
         }
     })
@@ -451,13 +451,12 @@ def run_mcp_server(host: str = "localhost", port: int = 8000):
         from starlette.middleware import Middleware
         from starlette.middleware.cors import CORSMiddleware
         import uvicorn
+        from fastapi import FastAPI
+        from starlette.routing import Mount
         
-        # A2A routes are integrated directly into FastMCP via custom_route decorators above
-        # No need to create a separate FastAPI app - everything runs on the same port
-        print(f"✅ A2A functionality integrated into MCP server")
-        print(f"   MCP endpoint: http://{host}:{port}/mcp")
-        print(f"   A2A agent card: http://{host}:{port}/a2a/.well-known/agent-card.json")
-        print(f"   A2A requests: http://{host}:{port}/a2a/request")
+        # Create A2A Starlette app to mount under /a2a
+        from a2a_server import create_a2a_server
+        a2a_starlette_app = create_a2a_server(host=host, port=port)
         
         http_middleware = [
             Middleware(
@@ -468,6 +467,68 @@ def run_mcp_server(host: str = "localhost", port: int = 8000):
                 allow_headers=["*"],
             )
         ]
+        
+        # Create a unified FastAPI app that mounts both MCP and A2A
+        if a2a_starlette_app:
+            try:
+                # Create a main FastAPI app
+                main_app = FastAPI(title="Calendar Agent Server", middleware=http_middleware)
+                
+                # Get the FastMCP's SSE app - this is the Starlette app that handles SSE
+                # FastMCP creates this when using streamable-http transport
+                # We need to get the app that FastMCP would create
+                try:
+                    # Try to get the SSE app from FastMCP
+                    if hasattr(mcp, 'sse_app'):
+                        mcp_sse_app = mcp.sse_app()
+                    elif hasattr(mcp, '_sse_app'):
+                        mcp_sse_app = mcp._sse_app()
+                    else:
+                        # FastMCP may not expose this directly
+                        # We'll need to mount the MCP routes manually
+                        mcp_sse_app = None
+                    
+                    if mcp_sse_app:
+                        # Mount MCP SSE app under /mcp
+                        main_app.mount("/mcp", mcp_sse_app)
+                        print(f"✅ MCP SSE app mounted at /mcp")
+                    
+                    # Mount A2A Starlette app under /a2a
+                    main_app.mount("/a2a", a2a_starlette_app)
+                    print(f"✅ A2A FastAPI app mounted at /a2a")
+                    
+                    # Also add the agent card route at root (it's already in A2A app, but we want it accessible)
+                    # The A2A app should have it at /.well-known/agent-card.json
+                    # But when mounted at /a2a, it becomes /a2a/.well-known/agent-card.json
+                    # So we add a route at root to proxy to the mounted location
+                    @main_app.get("/.well-known/agent-card.json")
+                    async def get_agent_card_root():
+                        from a2a_server import create_agent_card
+                        agent_card = create_agent_card(host=host, port=port)
+                        from fastapi.responses import JSONResponse
+                        return JSONResponse(agent_card)
+                    
+                    print(f"✅ Running unified MCP + A2A server")
+                    print(f"   MCP endpoint: http://{host}:{port}/mcp")
+                    print(f"   A2A base: http://{host}:{port}/a2a")
+                    print(f"   A2A agent card: http://{host}:{port}/.well-known/agent-card.json")
+                    
+                    uvicorn.run(main_app, host=host, port=port, log_level="info")
+                    return
+                except Exception as sse_error:
+                    print(f"⚠️  Could not get MCP SSE app: {sse_error}")
+                    import traceback
+                    traceback.print_exc()
+            except Exception as mount_error:
+                print(f"⚠️  Could not create unified app: {mount_error}")
+                import traceback
+                traceback.print_exc()
+        
+        # Fallback: Run FastMCP normally (A2A may not be available or mounting failed)
+        print(f"✅ Running MCP server")
+        print(f"   MCP endpoint: http://{host}:{port}/mcp")
+        if a2a_starlette_app:
+            print(f"   A2A agent card: http://{host}:{port}/.well-known/agent-card.json")
         
         # Run with streamable-http to support both SSE and custom routes
         # Mount MCP server under /mcp path
