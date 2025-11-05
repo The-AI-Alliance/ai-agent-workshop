@@ -1607,3 +1607,7 @@ Examples:
     else:
         st.info("No events found. Add an event using the sidebar form.")
 
+
+if __name__ == "__main__":
+    main()
+

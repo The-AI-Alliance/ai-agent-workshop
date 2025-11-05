@@ -19,8 +19,8 @@ from a2a.types import (
     TaskState,
     TaskStatusUpdateEvent,
 )
-from a2a_mcp.common.utils import get_mcp_server_config
-from a2a_mcp.mcp import client
+from common.utils import get_mcp_server_config
+from mmcp import client
 
 
 logger = logging.getLogger(__name__)

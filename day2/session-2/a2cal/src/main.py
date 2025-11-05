@@ -76,16 +76,26 @@ def setup_ngrok(port: int = 8000) -> str:
         return localhost_url
 
 
-def launch_streamlit(script_path: Path) -> None:
-    """Launch streamlit with the given script path in a separate process."""
+def launch_streamlit() -> None:
+    """Launch streamlit with the UI file in a separate process."""
+    # Get the path to the UI file
+    ui_path = Path(__file__).parent / "app" / "ui.py"
     print(f"🚀 Launching Streamlit UI on http://localhost:8501...")
-    print(f"   File: {script_path}")
-    # Launch Streamlit in background
+    print(f"   File: {ui_path}")
+    
+    if not ui_path.exists():
+        print(f"❌ Error: UI file not found at {ui_path}")
+        return
+    
+    # Launch Streamlit in background (don't hide stderr so we can see errors)
     subprocess.Popen(
-        [sys.executable, "-m", "streamlit", "run", str(script_path), "--server.port=8501"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
+        [sys.executable, "-m", "streamlit", "run", str(ui_path), "--server.port=8501", "--server.headless=true"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
     )
+    # Give Streamlit a moment to start
+    import time
+    time.sleep(2)
 
 
 def main() -> None:
@@ -94,8 +104,7 @@ def main() -> None:
     load_environment_variables()
     
     # Launch Streamlit UI in a separate process
-    script_path = Path(__file__).resolve()
-    launch_streamlit(script_path)
+    launch_streamlit()
     
     # Create and attach MCP server
     print("🚀 Initializing MCP server...")
