@@ -4,3 +4,6 @@
 [submodule "day2/session-2/submodules/a2a-inspector"]
 	path = day2/session-2/submodules/a2a-inspector
 	url = git@github.com:a2aproject/a2a-inspector.git
+[submodule "day2/session-2/calendar-agent/A2A-MCP-Server"]
+	path = day2/session-2/calendar-agent/A2A-MCP-Server
+	url = git@github.com:GongRzhe/A2A-MCP-Server.git
