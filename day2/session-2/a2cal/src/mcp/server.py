@@ -11,7 +11,7 @@ import google.generativeai as genai
 import numpy as np
 import pandas as pd
 
-from a2a_mcp.common.utils import init_api_key
+from ..common.utils import init_api_key
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.utilities.logging import get_logger
 

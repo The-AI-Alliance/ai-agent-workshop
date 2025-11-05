@@ -5,6 +5,8 @@ import subprocess
 import threading
 import importlib.util
 from pathlib import Path
+from app.ui import main as run_ui
+from dotenv import load_dotenv
 
 # Check if we're being run directly (not via streamlit run)
 # If so, automatically launch streamlit
@@ -22,7 +24,6 @@ if __name__ == "__main__":
 
 # Load .env file at the beginning
 try:
-    from dotenv import load_dotenv
     # Load .env from the calendar-agent directory
     env_path = Path(__file__).parent / '.env'
     if env_path.exists():
@@ -42,26 +43,43 @@ except ImportError:
     print("⚠️  python-dotenv not installed. Install with: pip install python-dotenv")
     print("   Environment variables must be set manually")
 
-# Import Agent class
-from agent import Agent
+# Import Agent class (from external package or local module)
+try:
+    from agent import Agent
+except ImportError:
+    # Try alternative import paths
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+        from agent import Agent
+    except ImportError:
+        print("⚠️  Agent class not found. Please ensure the agent module is available.")
+        Agent = None
 
 # Initialize agent with DID Peer - A2A now merged with MCP on port 8000
-agent = Agent(name="Calendar Agent", host="localhost", a2a_port=8000, mcp_port=8000)
+agent = None
+if Agent:
+    try:
+        agent = Agent(name="Calendar Agent", host="localhost", a2a_port=8000, mcp_port=8000)
+    except Exception as e:
+        print(f"⚠️  Could not initialize Agent: {e}")
 
 # Update agentfacts with the DID
-try:
-    from agentfacts import update_agent_id
-    update_agent_id(agent.get_did())
-except Exception as e:
-    print(f"⚠️  Could not update agentfacts agent_id: {e}")
+if agent:
+    try:
+        # Add src directory to path for imports
+        src_dir = os.path.dirname(__file__)
+        if src_dir not in sys.path:
+            sys.path.insert(0, src_dir)
+        from common.agentfacts import update_agent_id
+        update_agent_id(agent.get_did())
+    except Exception as e:
+        print(f"⚠️  Could not update agentfacts agent_id: {e}")
 
 # Import MCP server
-server_spec = importlib.util.spec_from_file_location("server", os.path.join(os.path.dirname(__file__), "server.py"))
+mcp_server_path = os.path.join(os.path.dirname(__file__), "mcp", "server.py")
+server_spec = importlib.util.spec_from_file_location("mcp_server", mcp_server_path)
 server_module = importlib.util.module_from_spec(server_spec)
 server_spec.loader.exec_module(server_module)
-
-# Import A2A server
-import a2a_server as a2a_module
 
 # Import streamlit - needed for session state and UI
 import streamlit as st
@@ -75,13 +93,21 @@ if 'mcp_server_started' not in st.session_state:
         
         # Use ngrok URL from agent if available (reuses existing tunnel)
         # The agent instance already has ngrok URLs set up
-        MCP_URL = agent.mcp_url  # This already includes ngrok if available
+        MCP_URL = agent.mcp_url if agent else f"http://{MCP_HOST}:{MCP_PORT}"
         
         def run_mcp_server():
             try:
-                server_module.run_mcp_server(host=MCP_HOST, port=MCP_PORT)
+                # Import the serve function from the MCP server module
+                if hasattr(server_module, 'serve'):
+                    server_module.serve(host=MCP_HOST, port=MCP_PORT, transport='sse')
+                elif hasattr(server_module, 'run_mcp_server'):
+                    server_module.run_mcp_server(host=MCP_HOST, port=MCP_PORT)
+                else:
+                    print("⚠️  MCP server module does not have a recognized entry point")
             except Exception as e:
                 print(f"⚠️ MCP Server error: {e}")
+                import traceback
+                traceback.print_exc()
         
         mcp_thread = threading.Thread(target=run_mcp_server, daemon=True)
         mcp_thread.start()
@@ -93,19 +119,20 @@ if 'mcp_server_started' not in st.session_state:
         st.session_state.mcp_server_started = False
         st.session_state.mcp_server_url = None
 
-# Import streamlit - needed for session state and UI
-import streamlit as st
-
 # A2A server is now merged with MCP server on port 8000
 # Use ngrok URL from agent if available (reuses existing tunnel)
-A2A_URL = agent.a2a_url  # This already includes ngrok if available
-st.session_state.a2a_server_started = True
-st.session_state.a2a_server_url = A2A_URL
-print(f"✅ A2A server is merged with MCP server on port 8000")
-print(f"   A2A endpoints available at: {A2A_URL}/.well-known/agent-card.json")
+if agent:
+    A2A_URL = agent.a2a_url  # This already includes ngrok if available
+    st.session_state.a2a_server_started = True
+    st.session_state.a2a_server_url = A2A_URL
+    print(f"✅ A2A server is merged with MCP server on port 8000")
+    print(f"   A2A endpoints available at: {A2A_URL}/.well-known/agent-card.json")
+else:
+    st.session_state.a2a_server_started = False
+    st.session_state.a2a_server_url = None
+    print(f"⚠️  A2A server not initialized - Agent class not available")
 
 # Import and run the UI
-from ui import main as run_ui
 
 # This block runs when streamlit executes the file
 if __name__ == "__main__":
