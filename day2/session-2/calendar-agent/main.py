@@ -72,8 +72,10 @@ if 'mcp_server_started' not in st.session_state:
         # Default MCP server configuration
         MCP_HOST = "localhost"
         MCP_PORT = 8000
-        # MCP server is mounted under /mcp
-        MCP_URL = f"http://{MCP_HOST}:{MCP_PORT}/mcp"
+        
+        # Use ngrok URL from agent if available (reuses existing tunnel)
+        # The agent instance already has ngrok URLs set up
+        MCP_URL = agent.mcp_url  # This already includes ngrok if available
         
         def run_mcp_server():
             try:
@@ -95,8 +97,8 @@ if 'mcp_server_started' not in st.session_state:
 import streamlit as st
 
 # A2A server is now merged with MCP server on port 8000
-# Set A2A URL to the same port as MCP
-A2A_URL = f"http://localhost:8000"
+# Use ngrok URL from agent if available (reuses existing tunnel)
+A2A_URL = agent.a2a_url  # This already includes ngrok if available
 st.session_state.a2a_server_started = True
 st.session_state.a2a_server_url = A2A_URL
 print(f"✅ A2A server is merged with MCP server on port 8000")

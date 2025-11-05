@@ -565,6 +565,7 @@ def main():
     
     # Display MCP server status and URL
     if st.session_state.get('mcp_server_started', False):
+        # Get MCP URL from session state (already set with ngrok URL from main.py)
         mcp_url = st.session_state.get('mcp_server_url', 'Unknown')
         st.sidebar.success("🟢 MCP Server Running", icon="📡")
         
@@ -579,15 +580,20 @@ def main():
     
     # Display A2A server status and URL
     if st.session_state.get('a2a_server_started', False):
+        # Get A2A URL from session state (already set with ngrok URL from main.py)
         a2a_url = st.session_state.get('a2a_server_url', 'Unknown')
         st.sidebar.success("🟢 A2A Server Running", icon="🤝")
         
         # Show A2A server URL in an expander
         with st.sidebar.expander("🤝 A2A Server Info", expanded=False):
-            st.write("**Server URL:**")
+            st.write("**Base URL:**")
             st.code(a2a_url, language=None)
             st.write("**Protocol:** Agent2Agent (A2A)")
             st.write("**Tools:** requestAvailableSlots, requestBooking, deleteBooking")
+            st.write("**A2A Endpoint:**")
+            # A2A endpoint is at /a2a/ (with trailing slash)
+            a2a_endpoint = f"{a2a_url}/a2a/" if not a2a_url.endswith("/a2a/") else a2a_url
+            st.code(a2a_endpoint, language=None)
             if st.button("📋 Copy URL", key="copy_a2a_url"):
                 st.write("💾 URL copied to clipboard!")
     else:

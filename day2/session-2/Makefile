@@ -241,6 +241,7 @@ run-context-forge context-forge:
 			MCPGATEWAY_ADMIN_API_ENABLED=true \
 			PLATFORM_ADMIN_EMAIL=admin@example.com \
 			PLATFORM_ADMIN_PASSWORD=changeme \
+			PLUGINS_ENABLED=true \
 			PLATFORM_ADMIN_FULL_NAME="Platform Administrator" \
 			uvx --from mcp-contextforge-gateway mcpgateway --host 0.0.0.0 --port 4444; \
 		else \
@@ -252,6 +253,7 @@ run-context-forge context-forge:
 			MCPGATEWAY_UI_ENABLED=true \
 			MCPGATEWAY_ADMIN_API_ENABLED=true \
 			PLATFORM_ADMIN_EMAIL=admin@example.com \
+			PLUGINS_ENABLED=true \
 			PLATFORM_ADMIN_PASSWORD=changeme \
 			PLATFORM_ADMIN_FULL_NAME="Platform Administrator" \
 			mcpgateway --host 0.0.0.0 --port 4444; \
