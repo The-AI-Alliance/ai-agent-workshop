@@ -13,7 +13,7 @@ from a2a.server.tasks import (
     InMemoryTaskStore,
 )
 from a2a.types import AgentCard
-from a2a_mcp.common.agent_executor import GenericAgentExecutor
+from common.agent_executor import GenericAgentExecutor
 
 logger = logging.getLogger(__name__)
 

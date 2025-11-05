@@ -117,14 +117,15 @@ def build_agent_card_embeddings() -> pd.DataFrame:
 
 
 def create_mcp_app(host='localhost', port=10100):
-    """Creates and initializes the Calendar Agent MCP FastAPI application.
+    """Creates and initializes the Calendar Agent MCP Starlette application.
 
     Args:
         host: The hostname or IP address (default: 'localhost')
         port: The port number (default: 10100)
 
     Returns:
-        FastAPI: The FastAPI application instance with MCP tools and resources
+        Starlette: The Starlette application instance with MCP tools and resources
+                   (can be mounted on FastAPI using app.mount())
 
     Raises:
         ValueError: If the 'GEMINI_API_TOKEN' environment variable is not set.
@@ -560,8 +561,8 @@ def create_mcp_app(host='localhost', port=10100):
         f'Calendar Agent MCP Server initialized at {host}:{port}'
     )
     
-    # Return the FastAPI app from FastMCP
-    return mcp.app
+    # Return the Starlette app from FastMCP (which can be mounted on FastAPI)
+    return mcp.http_app()
 
 
 def serve(host, port, transport):  # noqa: PLR0915

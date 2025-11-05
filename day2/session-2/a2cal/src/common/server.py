@@ -28,11 +28,11 @@ def get_app() -> FastAPI:
     return app
 
 
-def attach_mcp_server(mcp_app: FastAPI, prefix: str = "/mcp") -> None:
+def attach_mcp_server(mcp_app, prefix: str = "/mcp") -> None:
     """Attach MCP server as a sub-application.
     
     Args:
-        mcp_app: FastAPI application instance from MCP server
+        mcp_app: Starlette application instance from MCP server (via mcp.http_app())
         prefix: URL prefix for MCP routes (default: "/mcp")
     """
     logger.info(f"Attaching MCP server at prefix: {prefix}")

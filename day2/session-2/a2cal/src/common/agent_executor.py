@@ -16,7 +16,7 @@ from a2a.types import (
 )
 from a2a.utils import new_agent_text_message, new_task
 from a2a.utils.errors import ServerError
-from a2a_mcp.common.base_agent import BaseAgent
+from common.base_agent import BaseAgent
 
 
 logger = logging.getLogger(__name__)
