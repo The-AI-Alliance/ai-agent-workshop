@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import re
 from pathlib import Path
@@ -9,7 +10,7 @@ from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIAugmentedLLM
 
 app = MCPApp(name="harvest-ai-alliance-members")
 
-async def main():
+async def main(mode="member"):
     async with app.run():
 
         agent = Agent(
@@ -20,17 +21,25 @@ async def main():
         async with agent:
             llm = await agent.attach_llm(OpenAIAugmentedLLM)
 
+            # Determine input file and output directory based on mode
+            if mode == "sponsor":
+                urls_filename = "sponsor-urls.txt"
+                summaries_dirname = "sponsor-summaries"
+            else:  # default to "member"
+                urls_filename = "member-urls.txt"
+                summaries_dirname = "member-summaries"
+
             # Load the list of company URLs to harvest
-            urls_path = Path(__file__).parent / "data" / "member-urls.txt"
+            urls_path = Path(__file__).parent / "data" / urls_filename
             urls = [line.strip() for line in urls_path.read_text().splitlines() if line.strip()]
-            print(f"Found {len(urls)} URLs to harvest")
+            print(f"Found {len(urls)} URLs to harvest from {urls_filename}")
 
             # Load the prompt template
             prompt_path = Path(__file__).parent / "summarize-prompt.md"
             prompt_template = prompt_path.read_text().strip()
             print(f"Loaded prompt template: {prompt_template}")
 
-            summaries_dir = Path(__file__).parent / "data" / "member-summaries"
+            summaries_dir = Path(__file__).parent / "data" / summaries_dirname
             summaries_dir.mkdir(parents=True, exist_ok=True)
 
             for url in urls[:10]:
@@ -55,4 +64,22 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(
+        description="Harvest AI Alliance member or sponsor information",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python main.py              # Process members (default)
+  python main.py --mode member # Process members
+  python main.py --mode sponsor # Process sponsors
+        """
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["member", "sponsor"],
+        default="member",
+        help="Process member URLs or sponsor URLs (default: member)"
+    )
+    args = parser.parse_args()
+    
+    asyncio.run(main(mode=args.mode))

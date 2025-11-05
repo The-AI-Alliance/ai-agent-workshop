@@ -40,8 +40,14 @@ uv add openai
 - Create an mcp_agent.secrets.yaml
 - [example file](https://github.com/lastmile-ai/mcp-agent/blob/main/examples/basic/mcp_basic_agent/mcp_agent.secrets.yaml.example)
 
-4. Run harvest
+4. Run harvest (defaults to AI Alliance members)
 
 ```bash
 uv run main.py
+```
+
+5. Run harvest on AI Summit sponsors
+
+```bash
+uv run main.py --mode sponsor
 ```
