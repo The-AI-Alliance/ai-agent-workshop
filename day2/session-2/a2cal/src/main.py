@@ -1,139 +1,108 @@
-"""Main entry point for Calendar Agent - initializes MCP and A2A servers and runs Streamlit UI."""
-import sys
-import os
+"""Main entry point for Calendar Agent - runs Streamlit UI."""
 import subprocess
-import threading
-import importlib.util
+import sys
 from pathlib import Path
-from app.ui import main as run_ui
+
 from dotenv import load_dotenv
+from pyngrok import ngrok
 
-# Check if we're being run directly (not via streamlit run)
-# If so, automatically launch streamlit
-if __name__ == "__main__":
-    # Check if streamlit is already running (by checking if 'streamlit' is in sys.argv or sys.modules)
-    is_streamlit = any("streamlit" in arg for arg in sys.argv) or "streamlit" in sys.modules
-    
-    if not is_streamlit:
-        # Get the path to this file
-        script_path = Path(__file__).resolve()
-        # Launch streamlit with this file
-        print(f"🚀 Launching Streamlit UI...")
-        print(f"   File: {script_path}")
-        sys.exit(subprocess.call([sys.executable, "-m", "streamlit", "run", str(script_path)]))
+import streamlit as st
+from app.ui import main as run_ui
 
-# Load .env file at the beginning
-try:
-    # Load .env from the calendar-agent directory
+
+def is_streamlit_running() -> bool:
+    """Check if streamlit is already running."""
+    return any("streamlit" in arg for arg in sys.argv) or "streamlit" in sys.modules
+
+
+def launch_streamlit(script_path: Path) -> None:
+    """Launch streamlit with the given script path."""
+    print(f"🚀 Launching Streamlit UI...")
+    print(f"   File: {script_path}")
+    sys.exit(subprocess.call([sys.executable, "-m", "streamlit", "run", str(script_path)]))
+
+
+def load_environment_variables() -> None:
+    """Load environment variables from .env file."""
+    # Try loading from src directory
     env_path = Path(__file__).parent / '.env'
     if env_path.exists():
         load_dotenv(env_path)
         print(f"✅ Loaded .env file from {env_path}")
-    else:
-        # Try loading from parent directory
-        parent_env = Path(__file__).parent.parent / '.env'
-        if parent_env.exists():
-            load_dotenv(parent_env)
-            print(f"✅ Loaded .env file from {parent_env}")
+        return
+    
+    # Try loading from parent directory
+    parent_env = Path(__file__).parent.parent / '.env'
+    if parent_env.exists():
+        load_dotenv(parent_env)
+        print(f"✅ Loaded .env file from {parent_env}")
+        return
+    
+    # Try loading from current working directory
+    load_dotenv()
+    print(f"ℹ️  No .env file found, using environment variables")
+
+
+def setup_ngrok(port: int = 8501) -> str:
+    """Set up ngrok tunnel for Streamlit.
+    
+    Args:
+        port: Port number for Streamlit (default: 8501)
+        
+    Returns:
+        Public URL from ngrok or localhost URL if ngrok unavailable
+    """
+    try:
+        # Try to get existing tunnels first
+        tunnels = ngrok.get_tunnels()
+        existing_tunnel = None
+        
+        for tunnel in tunnels:
+            tunnel_addr = str(tunnel.config.get('addr', '')).strip()
+            port_str = str(port)
+            if (tunnel_addr == f'localhost:{port}' or 
+                tunnel_addr == f'127.0.0.1:{port}' or 
+                tunnel_addr == port_str or 
+                tunnel_addr.endswith(f':{port}') or
+                tunnel_addr == f':{port}'):
+                existing_tunnel = tunnel
+                print(f"🔍 Found existing ngrok tunnel for port {port}: {tunnel.public_url}")
+                break
+        
+        if existing_tunnel:
+            ngrok_url = existing_tunnel.public_url.rstrip('/')
         else:
-            # Try loading from current working directory
-            load_dotenv()
-            print(f"ℹ️  No .env file found, using environment variables")
-except ImportError:
-    print("⚠️  python-dotenv not installed. Install with: pip install python-dotenv")
-    print("   Environment variables must be set manually")
-
-# Import Agent class (from external package or local module)
-try:
-    from agent import Agent
-except ImportError:
-    # Try alternative import paths
-    try:
-        sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-        from agent import Agent
-    except ImportError:
-        print("⚠️  Agent class not found. Please ensure the agent module is available.")
-        Agent = None
-
-# Initialize agent with DID Peer - A2A now merged with MCP on port 8000
-agent = None
-if Agent:
-    try:
-        agent = Agent(name="Calendar Agent", host="localhost", a2a_port=8000, mcp_port=8000)
-    except Exception as e:
-        print(f"⚠️  Could not initialize Agent: {e}")
-
-# Update agentfacts with the DID
-if agent:
-    try:
-        # Add src directory to path for imports
-        src_dir = os.path.dirname(__file__)
-        if src_dir not in sys.path:
-            sys.path.insert(0, src_dir)
-        from common.agentfacts import update_agent_id
-        update_agent_id(agent.get_did())
-    except Exception as e:
-        print(f"⚠️  Could not update agentfacts agent_id: {e}")
-
-# Import MCP server
-mcp_server_path = os.path.join(os.path.dirname(__file__), "mcp", "server.py")
-server_spec = importlib.util.spec_from_file_location("mcp_server", mcp_server_path)
-server_module = importlib.util.module_from_spec(server_spec)
-server_spec.loader.exec_module(server_module)
-
-# Import streamlit - needed for session state and UI
-import streamlit as st
-
-# Initialize MCP server in background thread (only once per Streamlit session)
-if 'mcp_server_started' not in st.session_state:
-    try:
-        # Default MCP server configuration
-        MCP_HOST = "localhost"
-        MCP_PORT = 8000
+            # Create new ngrok tunnel
+            tunnel = ngrok.connect(port, "http")
+            ngrok_url = tunnel.public_url.rstrip('/')
         
-        # Use ngrok URL from agent if available (reuses existing tunnel)
-        # The agent instance already has ngrok URLs set up
-        MCP_URL = agent.mcp_url if agent else f"http://{MCP_HOST}:{MCP_PORT}"
+        print(f"✅ ngrok tunnel ready: {ngrok_url}")
+        return ngrok_url
         
-        def run_mcp_server():
-            try:
-                # Import the serve function from the MCP server module
-                if hasattr(server_module, 'serve'):
-                    server_module.serve(host=MCP_HOST, port=MCP_PORT, transport='sse')
-                elif hasattr(server_module, 'run_mcp_server'):
-                    server_module.run_mcp_server(host=MCP_HOST, port=MCP_PORT)
-                else:
-                    print("⚠️  MCP server module does not have a recognized entry point")
-            except Exception as e:
-                print(f"⚠️ MCP Server error: {e}")
-                import traceback
-                traceback.print_exc()
-        
-        mcp_thread = threading.Thread(target=run_mcp_server, daemon=True)
-        mcp_thread.start()
-        st.session_state.mcp_server_started = True
-        st.session_state.mcp_server_url = MCP_URL
-        print(f"🚀 MCP Server started in background thread at {MCP_URL}")
     except Exception as e:
-        print(f"⚠️ Failed to start MCP server: {e}")
-        st.session_state.mcp_server_started = False
-        st.session_state.mcp_server_url = None
+        localhost_url = f"http://localhost:{port}"
+        print(f"⚠️  ngrok error: {e}")
+        print(f"ℹ️  Using localhost URL: {localhost_url}")
+        return localhost_url
 
-# A2A server is now merged with MCP server on port 8000
-# Use ngrok URL from agent if available (reuses existing tunnel)
-if agent:
-    A2A_URL = agent.a2a_url  # This already includes ngrok if available
-    st.session_state.a2a_server_started = True
-    st.session_state.a2a_server_url = A2A_URL
-    print(f"✅ A2A server is merged with MCP server on port 8000")
-    print(f"   A2A endpoints available at: {A2A_URL}/.well-known/agent-card.json")
-else:
-    st.session_state.a2a_server_started = False
-    st.session_state.a2a_server_url = None
-    print(f"⚠️  A2A server not initialized - Agent class not available")
 
-# Import and run the UI
+def main() -> None:
+    """Main entry point."""
+    # Load environment variables
+    load_environment_variables()
+    
+    # Set up ngrok (optional)
+    setup_ngrok()
+    
+    # Check if streamlit is already running
+    if is_streamlit_running():
+        # Streamlit is running, just execute the UI
+        run_ui()
+    else:
+        # Launch streamlit
+        script_path = Path(__file__).resolve()
+        launch_streamlit(script_path)
 
-# This block runs when streamlit executes the file
+
 if __name__ == "__main__":
-    run_ui()
+    main()
