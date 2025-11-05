@@ -16,8 +16,12 @@ from mcp.types import CallToolResult, ReadResourceResult
 
 logger = get_logger(__name__)
 
+# Use GEMINI_API_TOKEN, fallback to GOOGLE_API_KEY or GEMINI_API_KEY for backward compatibility
+gemini_token = os.getenv('GEMINI_API_TOKEN') or os.getenv('GOOGLE_API_KEY') or os.getenv('GEMINI_API_KEY')
 env = {
-    'GOOGLE_API_KEY': os.getenv('GOOGLE_API_KEY'),
+    'GEMINI_API_TOKEN': gemini_token,
+    'GEMINI_API_KEY': gemini_token,  # For LiteLLM compatibility
+    'GOOGLE_API_KEY': gemini_token,  # Keep for backward compatibility
 }
 
 
@@ -55,9 +59,10 @@ async def init_session(host, port, transport):
                 logger.info('SSE ClientSession initialized successfully.')
                 yield session
     elif transport == 'stdio':
-        if not os.getenv('GOOGLE_API_KEY'):
-            logger.error('GOOGLE_API_KEY is not set')
-            raise ValueError('GOOGLE_API_KEY is not set')
+        gemini_token = os.getenv('GEMINI_API_TOKEN') or os.getenv('GOOGLE_API_KEY')
+        if not gemini_token:
+            logger.error('GEMINI_API_TOKEN is not set')
+            raise ValueError('GEMINI_API_TOKEN is not set. Please set GEMINI_API_TOKEN environment variable.')
         stdio_params = StdioServerParameters(
             command='uv',
             args=['run', 'a2a-mcp'],

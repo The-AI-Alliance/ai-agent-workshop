@@ -22,7 +22,7 @@ class AgentRunner:
     def __init__(
         self,
         user_id: str = 'user_1',
-        app_name: str = 'A2A-MCP',
+        app_name: str = 'a2cal',
     ):
         self.session_service = InMemorySessionService()
         self.session = None

@@ -1,0 +1,105 @@
+{
+    "name": "Calendar Manager Agent",
+    "description": "An intelligent calendar management agent that handles incoming meeting requests, reviews calendar availability, and makes decisions about accepting or rejecting meeting proposals from other agents. Uses chain-of-thought reasoning to evaluate requests based on calendar state and booking preferences.",
+    "url": "http://localhost:10101/",
+    "version": "1.0.0",
+    "capabilities": {
+        "streaming": true,
+        "pushNotifications": true,
+        "stateTransitionHistory": false
+    },
+    "defaultInputModes": [
+        "text",
+        "text/plain"
+    ],
+    "defaultOutputModes": [
+        "text",
+        "text/plain",
+        "application/json"
+    ],
+    "instructions": "You are a Calendar Management Agent responsible for managing incoming calendar requests and meeting proposals.\n\nYour primary responsibilities are:\n1. Review incoming meeting proposals from other agents\n2. Check calendar availability and conflicts\n3. Accept or reject meeting requests based on calendar state and preferences\n4. Manage meeting confirmations and status updates\n5. Provide clear feedback about calendar availability\n\nAlways use chain-of-thought reasoning before responding to track your decision-making process.\n\nUse the available MCP tools to:\n- Check calendar events and conflicts\n- Accept or reject meeting proposals\n- Confirm meetings once accepted\n- Cancel events when needed\n\nBe polite and professional in all responses. Provide clear reasons when rejecting meetings and consider booking preferences when making decisions.",
+    "skills": [
+        {
+            "id": "manage_calendar_requests",
+            "name": "Manage Calendar Requests",
+            "description": "Review, accept, or reject incoming meeting proposals from other agents",
+            "tags": [
+                "calendar",
+                "meeting management",
+                "scheduling",
+                "availability"
+            ],
+            "examples": [
+                "Review and accept a meeting proposal for tomorrow at 2pm",
+                "Check if there are any conflicts with a proposed meeting time",
+                "Reject a meeting request due to scheduling conflict"
+            ]
+        },
+        {
+            "id": "check_calendar_availability",
+            "name": "Check Calendar Availability",
+            "description": "Check calendar for existing events, conflicts, and available time slots",
+            "tags": [
+                "calendar",
+                "availability",
+                "conflicts",
+                "scheduling"
+            ],
+            "examples": [
+                "Check my calendar for conflicts on Tuesday afternoon",
+                "Show me all upcoming meetings",
+                "Find available slots for a 30-minute meeting"
+            ]
+        },
+        {
+            "id": "manage_meeting_status",
+            "name": "Manage Meeting Status",
+            "description": "Update meeting status (accept, reject, confirm, cancel) based on calendar state",
+            "tags": [
+                "calendar",
+                "meeting status",
+                "confirmation",
+                "cancellation"
+            ],
+            "examples": [
+                "Accept the pending meeting proposal",
+                "Confirm the accepted meeting",
+                "Cancel the meeting scheduled for Friday"
+            ]
+        }
+    ],
+    "tools": [
+        {
+            "name": "getCalendarEvents",
+            "description": "Get all calendar events, optionally filtered by status"
+        },
+        {
+            "name": "getPendingRequests",
+            "description": "Get all pending meeting requests (proposed or accepted but not confirmed)"
+        },
+        {
+            "name": "getUpcomingEvents",
+            "description": "Get upcoming confirmed/booked events"
+        },
+        {
+            "name": "requestAvailableSlots",
+            "description": "Find available time slots between start and end dates"
+        },
+        {
+            "name": "acceptMeeting",
+            "description": "Accept a proposed meeting"
+        },
+        {
+            "name": "rejectMeeting",
+            "description": "Reject a proposed meeting"
+        },
+        {
+            "name": "confirmMeeting",
+            "description": "Confirm an accepted meeting (mark as booked)"
+        },
+        {
+            "name": "cancelEvent",
+            "description": "Cancel an event"
+        }
+    ]
+}

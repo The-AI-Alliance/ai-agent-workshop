@@ -1,25 +1,15 @@
-"""Main entry point for Calendar Agent - runs Streamlit UI."""
+"""Main entry point for Calendar Agent - runs the aggregated server."""
 import subprocess
 import sys
+import uvicorn
 from pathlib import Path
 
 from dotenv import load_dotenv
 from pyngrok import ngrok
 
-import streamlit as st
-from app.ui import main as run_ui
-
-
-def is_streamlit_running() -> bool:
-    """Check if streamlit is already running."""
-    return any("streamlit" in arg for arg in sys.argv) or "streamlit" in sys.modules
-
-
-def launch_streamlit(script_path: Path) -> None:
-    """Launch streamlit with the given script path."""
-    print(f"🚀 Launching Streamlit UI...")
-    print(f"   File: {script_path}")
-    sys.exit(subprocess.call([sys.executable, "-m", "streamlit", "run", str(script_path)]))
+from agents.server import create_a2a_app
+from common.server import app, attach_a2a_server, attach_mcp_server
+from mmcp.server import create_mcp_app
 
 
 def load_environment_variables() -> None:
@@ -43,11 +33,11 @@ def load_environment_variables() -> None:
     print(f"ℹ️  No .env file found, using environment variables")
 
 
-def setup_ngrok(port: int = 8501) -> str:
-    """Set up ngrok tunnel for Streamlit.
+def setup_ngrok(port: int = 8000) -> str:
+    """Set up ngrok tunnel for the server.
     
     Args:
-        port: Port number for Streamlit (default: 8501)
+        port: Port number for the server (default: 8000)
         
     Returns:
         Public URL from ngrok or localhost URL if ngrok unavailable
@@ -86,22 +76,68 @@ def setup_ngrok(port: int = 8501) -> str:
         return localhost_url
 
 
+def launch_streamlit(script_path: Path) -> None:
+    """Launch streamlit with the given script path in a separate process."""
+    print(f"🚀 Launching Streamlit UI on http://localhost:8501...")
+    print(f"   File: {script_path}")
+    # Launch Streamlit in background
+    subprocess.Popen(
+        [sys.executable, "-m", "streamlit", "run", str(script_path), "--server.port=8501"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+
+
 def main() -> None:
     """Main entry point."""
     # Load environment variables
     load_environment_variables()
     
-    # Set up ngrok (optional)
-    setup_ngrok()
+    # Launch Streamlit UI in a separate process
+    script_path = Path(__file__).resolve()
+    launch_streamlit(script_path)
     
-    # Check if streamlit is already running
-    if is_streamlit_running():
-        # Streamlit is running, just execute the UI
-        run_ui()
+    # Create and attach MCP server
+    print("🚀 Initializing MCP server...")
+    mcp_app = create_mcp_app(host='localhost', port=10100)
+    attach_mcp_server(mcp_app, prefix="/mcp")
+    
+    # Create and attach A2A agent server
+    # Use Calendar Manager Agent as default
+    agent_card_path = Path(__file__).parent / "agent_cards" / "calendar_admin.json"
+    if agent_card_path.exists():
+        print("🚀 Initializing A2A agent server...")
+        try:
+            a2a_app = create_a2a_app(str(agent_card_path))
+            attach_a2a_server(a2a_app, prefix="/agent")
+        except Exception as e:
+            print(f"⚠️  Warning: Could not attach A2A agent server: {e}")
+            print("   Continuing without A2A agent server...")
     else:
-        # Launch streamlit
-        script_path = Path(__file__).resolve()
-        launch_streamlit(script_path)
+        print(f"⚠️  Warning: Agent card not found at {agent_card_path}")
+        print("   Continuing without A2A agent server...")
+    
+    # Set up ngrok tunnel
+    ngrok_url = setup_ngrok(port=8000)
+    
+    # Run the aggregated server
+    print("\n" + "="*60)
+    print("🚀 Starting A2Cal server on http://localhost:8000")
+    print("📋 Available endpoints:")
+    print("   - Root: http://localhost:8000/")
+    print("   - Health: http://localhost:8000/health")
+    print("   - MCP: http://localhost:8000/mcp")
+    print("   - A2A Agent: http://localhost:8000/agent")
+    print("   - Streamlit UI: http://localhost:8501")
+    if ngrok_url and ngrok_url.startswith("http"):
+        print(f"\n🌐 Public URLs (via ngrok):")
+        print(f"   - Root: {ngrok_url}/")
+        print(f"   - Health: {ngrok_url}/health")
+        print(f"   - MCP: {ngrok_url}/mcp")
+        print(f"   - A2A Agent: {ngrok_url}/agent")
+    print("="*60 + "\n")
+    
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 
 if __name__ == "__main__":

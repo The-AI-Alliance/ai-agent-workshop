@@ -1,0 +1,133 @@
+{
+    "name": "Calendar Booking Agent",
+    "description": "An intelligent calendar booking agent that finds available time slots, proposes meeting times to other agents, and handles the booking workflow. Uses chain-of-thought reasoning to find optimal meeting times and negotiate schedules when needed.",
+    "url": "http://localhost:10101/",
+    "version": "1.0.0",
+    "capabilities": {
+        "streaming": true,
+        "pushNotifications": true,
+        "stateTransitionHistory": false
+    },
+    "defaultInputModes": [
+        "text",
+        "text/plain"
+    ],
+    "defaultOutputModes": [
+        "text",
+        "text/plain",
+        "application/json"
+    ],
+    "instructions": "You are a Calendar Booking Agent responsible for proposing and booking meetings with other agents.\n\nYour primary responsibilities are:\n1. Find available time slots on partner agents' calendars\n2. Propose meeting times to other agents\n3. Negotiate meeting schedules if initial proposals are rejected\n4. Confirm bookings once accepted\n5. Handle booking workflows efficiently\n\nAlways use chain-of-thought reasoning before responding to track your decision-making process.\n\nUse the available MCP tools to:\n- Find partner agents using find_agent\n- Check available time slots using requestAvailableSlots\n- Propose meetings using requestBooking or proposeMeeting\n- Confirm bookings once accepted\n\nBe flexible and propose multiple alternatives when needed. Respect partner agent preferences and provide clear status updates throughout the booking process.",
+    "skills": [
+        {
+            "id": "find_agent_partners",
+            "name": "Find Agent Partners",
+            "description": "Discover and locate other agents for meeting coordination using semantic search",
+            "tags": [
+                "agent discovery",
+                "partner search",
+                "agent coordination"
+            ],
+            "examples": [
+                "Find an agent that handles calendar management",
+                "Locate the calendar admin agent",
+                "Search for agents available for meetings"
+            ]
+        },
+        {
+            "id": "find_available_slots",
+            "name": "Find Available Time Slots",
+            "description": "Find available time slots on partner agents' calendars for meeting proposals",
+            "tags": [
+                "calendar",
+                "availability",
+                "scheduling",
+                "time slots"
+            ],
+            "examples": [
+                "Find available slots for a 30-minute meeting next week",
+                "Check partner availability between Monday and Friday",
+                "Get available times for a 1-hour meeting"
+            ]
+        },
+        {
+            "id": "propose_meetings",
+            "name": "Propose Meetings",
+            "description": "Propose meeting times to other agents and handle booking requests",
+            "tags": [
+                "calendar",
+                "booking",
+                "meeting proposal",
+                "scheduling"
+            ],
+            "examples": [
+                "Propose a meeting for tomorrow at 2pm with agent-beta",
+                "Request a 45-minute meeting next Tuesday",
+                "Book a meeting with the calendar manager agent"
+            ]
+        },
+        {
+            "id": "negotiate_schedules",
+            "name": "Negotiate Schedules",
+            "description": "Handle rejected proposals by finding alternative times and re-proposing",
+            "tags": [
+                "calendar",
+                "negotiation",
+                "alternative times",
+                "scheduling"
+            ],
+            "examples": [
+                "The proposed time was rejected, find alternative slots",
+                "Suggest different times when initial proposal is unavailable",
+                "Negotiate a better meeting time"
+            ]
+        },
+        {
+            "id": "confirm_bookings",
+            "name": "Confirm Bookings",
+            "description": "Confirm meetings once they are accepted by the partner agent",
+            "tags": [
+                "calendar",
+                "confirmation",
+                "booking",
+                "meeting finalization"
+            ],
+            "examples": [
+                "Confirm the accepted meeting proposal",
+                "Finalize the booking for next week's meeting",
+                "Mark the meeting as confirmed"
+            ]
+        }
+    ],
+    "tools": [
+        {
+            "name": "find_agent",
+            "description": "Find agent cards based on a query string using semantic search"
+        },
+        {
+            "name": "requestAvailableSlots",
+            "description": "Get available time slots from partner agent between start and end dates"
+        },
+        {
+            "name": "requestBooking",
+            "description": "Request a calendar booking at a specific time"
+        },
+        {
+            "name": "proposeMeeting",
+            "description": "Propose a meeting time (alias for requestBooking)"
+        },
+        {
+            "name": "confirmMeeting",
+            "description": "Confirm an accepted meeting (mark as booked)"
+        },
+        {
+            "name": "getCalendarEvents",
+            "description": "Check your own calendar events"
+        },
+        {
+            "name": "cancelEvent",
+            "description": "Cancel a booking if needed"
+        }
+    ]
+}
+

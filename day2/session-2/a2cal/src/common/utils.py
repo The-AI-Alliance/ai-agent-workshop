@@ -4,19 +4,30 @@ import os
 
 import google.generativeai as genai
 
-from a2a_mcp.common.types import ServerConfig
+from common.types import ServerConfig
 
 
 logger = logging.getLogger(__name__)
 
 
 def init_api_key():
-    """Initialize the API key for Google Generative AI."""
-    if not os.getenv('GOOGLE_API_KEY'):
-        logger.error('GOOGLE_API_KEY is not set')
-        raise ValueError('GOOGLE_API_KEY is not set')
-
-    genai.configure(api_key=os.getenv('GOOGLE_API_KEY'))
+    """Initialize the API token for Gemini SDK.
+    
+    Supports both GEMINI_API_TOKEN and GOOGLE_API_KEY for backward compatibility.
+    Also sets GEMINI_API_KEY for LiteLLM compatibility.
+    """
+    api_token = os.getenv('GEMINI_API_TOKEN') or os.getenv('GOOGLE_API_KEY') or os.getenv('GEMINI_API_KEY')
+    if not api_token:
+        logger.error('GEMINI_API_TOKEN is not set')
+        raise ValueError('GEMINI_API_TOKEN is not set. Please set GEMINI_API_TOKEN environment variable.')
+    
+    # Configure google.generativeai SDK
+    genai.configure(api_key=api_token)
+    
+    # Set for LiteLLM compatibility (LiteLLM uses GEMINI_API_KEY or GOOGLE_API_KEY)
+    if not os.getenv('GEMINI_API_KEY') and not os.getenv('GOOGLE_API_KEY'):
+        os.environ['GEMINI_API_KEY'] = api_token
+        os.environ['GOOGLE_API_KEY'] = api_token
 
 
 def config_logging():

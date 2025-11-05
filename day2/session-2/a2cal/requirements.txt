@@ -2,6 +2,7 @@ streamlit>=1.28.0
 streamlit-calendar>=0.1.7
 pydantic>=2.0.0
 fastmcp>=0.9.0
+uvicorn>=0.23.0
 a2a-sdk
 a2a-sdk[all]
 base58

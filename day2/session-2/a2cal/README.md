@@ -217,7 +217,7 @@ The MCP server exposes the following tools:
 ### Prerequisites
 
 - Python 3.8+
-- Google API key (for Gemini models via LiteLLM)
+- Gemini API token (`GEMINI_API_TOKEN`) - Get your API token from [Google AI Studio](https://makersuite.google.com/app/apikey)
 - A2A SDK installed
 
 ### Installation
@@ -227,8 +227,10 @@ The MCP server exposes the following tools:
 pip install -r requirements.txt
 
 # Set environment variables
-export GOOGLE_API_KEY="your-api-key"
+export GEMINI_API_TOKEN="your-gemini-api-token"
 export LITELLM_MODEL="gemini/gemini-2.0-flash"  # Optional, defaults to this
+
+# Note: GOOGLE_API_KEY is also supported for backward compatibility
 ```
 
 ### Running the MCP Server
