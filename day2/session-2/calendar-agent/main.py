@@ -1,9 +1,24 @@
 """Main entry point for Calendar Agent - initializes MCP and A2A servers and runs Streamlit UI."""
-import streamlit as st
-import threading
+import sys
 import os
+import subprocess
+import threading
 import importlib.util
 from pathlib import Path
+
+# Check if we're being run directly (not via streamlit run)
+# If so, automatically launch streamlit
+if __name__ == "__main__":
+    # Check if streamlit is already running (by checking if 'streamlit' is in sys.argv or sys.modules)
+    is_streamlit = any("streamlit" in arg for arg in sys.argv) or "streamlit" in sys.modules
+    
+    if not is_streamlit:
+        # Get the path to this file
+        script_path = Path(__file__).resolve()
+        # Launch streamlit with this file
+        print(f"🚀 Launching Streamlit UI...")
+        print(f"   File: {script_path}")
+        sys.exit(subprocess.call([sys.executable, "-m", "streamlit", "run", str(script_path)]))
 
 # Load .env file at the beginning
 try:
@@ -48,6 +63,9 @@ server_spec.loader.exec_module(server_module)
 # Import A2A server
 import a2a_server as a2a_module
 
+# Import streamlit - needed for session state and UI
+import streamlit as st
+
 # Initialize MCP server in background thread (only once per Streamlit session)
 if 'mcp_server_started' not in st.session_state:
     try:
@@ -73,6 +91,9 @@ if 'mcp_server_started' not in st.session_state:
         st.session_state.mcp_server_started = False
         st.session_state.mcp_server_url = None
 
+# Import streamlit - needed for session state and UI
+import streamlit as st
+
 # A2A server is now merged with MCP server on port 8000
 # Set A2A URL to the same port as MCP
 A2A_URL = f"http://localhost:8000"
@@ -84,5 +105,6 @@ print(f"   A2A endpoints available at: {A2A_URL}/.well-known/agent-card.json")
 # Import and run the UI
 from ui import main as run_ui
 
+# This block runs when streamlit executes the file
 if __name__ == "__main__":
     run_ui()

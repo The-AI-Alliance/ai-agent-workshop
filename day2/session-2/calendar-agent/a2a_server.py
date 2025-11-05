@@ -176,9 +176,66 @@ def create_agent_card(host: str = "localhost", port: int = 10000):
     if not A2A_AVAILABLE or not AgentCard or not AgentSkill or not AgentCapabilities:
         raise RuntimeError("A2A SDK not available. Cannot create AgentCard.")
     
-    # URL should point to /a2a/ (with trailing slash) to avoid redirect issues
-    # This ensures the client POSTs directly to /a2a/ instead of /a2a (which redirects)
-    url = os.getenv("A2A_ENDPOINT", f"http://{host}:{port}/a2a/")
+    # Try to get ngrok URL from existing Agent instance or create one
+    url = os.getenv("A2A_ENDPOINT", None)
+    if not url:
+        try:
+            # Try to get ngrok URL directly by checking existing tunnels
+            # This avoids creating duplicate Agent instances
+            try:
+                from pyngrok import ngrok
+                # Check for existing tunnels for the A2A port
+                tunnels = ngrok.get_tunnels()
+                existing_tunnel = None
+                for tunnel in tunnels:
+                    # Tunnel config addr can be in various formats
+                    tunnel_addr = str(tunnel.config.get('addr', '')).strip()
+                    port_str = str(port)
+                    if (tunnel_addr == f'localhost:{port}' or 
+                        tunnel_addr == f'127.0.0.1:{port}' or 
+                        tunnel_addr == port_str or 
+                        tunnel_addr.endswith(f':{port}') or
+                        tunnel_addr == f':{port}'):
+                        existing_tunnel = tunnel
+                        print(f"🔍 Found existing tunnel for A2A port {port}: {tunnel.public_url}")
+                        break
+                
+                if existing_tunnel:
+                    # Use existing tunnel
+                    base_url = existing_tunnel.public_url.rstrip('/')
+                    url = f"{base_url}/a2a/"
+                    print(f"✅ Using existing ngrok tunnel for A2A: {url}")
+                else:
+                    # Try to get agent from main module if available (to avoid creating duplicate Agent instance)
+                    try:
+                        import main
+                        if hasattr(main, 'agent') and main.agent:
+                            # Reuse existing agent instance
+                            agent_a2a_url = main.agent.a2a_url
+                            if agent_a2a_url.endswith('/'):
+                                url = f"{agent_a2a_url.rstrip('/')}/a2a/"
+                            else:
+                                url = f"{agent_a2a_url}/a2a/"
+                            print(f"✅ Using ngrok URL from existing Agent instance: {url}")
+                        else:
+                            raise AttributeError("Agent not found in main module")
+                    except (ImportError, AttributeError):
+                        # Fall back to creating Agent instance (it will check for existing tunnels)
+                        from agent import Agent
+                        agent = Agent(name="Calendar Agent", host=host, a2a_port=port, mcp_port=port)
+                        agent_a2a_url = agent.a2a_url
+                        if agent_a2a_url.endswith('/'):
+                            url = f"{agent_a2a_url.rstrip('/')}/a2a/"
+                        else:
+                            url = f"{agent_a2a_url}/a2a/"
+                        print(f"✅ Using ngrok URL from new Agent instance: {url}")
+            except ImportError:
+                # pyngrok not available, fall back to localhost
+                url = f"http://{host}:{port}/a2a/"
+        except Exception as e:
+            print(f"⚠️  Could not get ngrok URL: {e}, falling back to localhost")
+            # Fallback to localhost with /a2a/ endpoint
+            url = f"http://{host}:{port}/a2a/"
     
     # Create tools list (tools are stored as part of the skill's additional data)
     # Note: Tools are not directly part of AgentSkill in A2A spec, but we can store them

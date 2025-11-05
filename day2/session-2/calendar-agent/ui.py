@@ -5,6 +5,11 @@ from streamlit_calendar import calendar as st_calendar
 import sys
 import os
 import importlib.util
+import io
+import urllib.parse
+
+# Use web-based QR code generation (no dependencies needed)
+QRCODE_AVAILABLE = True
 
 # Import local calendar module explicitly to avoid conflicts with built-in calendar
 spec = importlib.util.spec_from_file_location("calendar_module", os.path.join(os.path.dirname(__file__), "calendar_module.py"))
@@ -30,11 +35,66 @@ st.set_page_config(
     layout="wide"
 )
 
+
+def get_admin_credentials():
+    """Get admin credentials from environment variables with defaults.
+    
+    Returns:
+        tuple: (username, password) from env vars or defaults
+    """
+    username = os.getenv("ADMIN_USERNAME", "admin")
+    password = os.getenv("ADMIN_PASSWORD", "admin123")
+    return username, password
+
+
+def is_authenticated() -> bool:
+    """Check if the current user is authenticated (logged in).
+    
+    Returns:
+        True if user is logged in, False otherwise
+    """
+    return st.session_state.get('is_authenticated', False)
+
+
+def login_page():
+    """Display login form for admin access."""
+    st.title("🔐 Admin Login")
+    st.markdown("Please enter your credentials to access the admin dashboard.")
+    
+    username_default, password_default = get_admin_credentials()
+    
+    with st.form("login_form"):
+        username = st.text_input("Username", placeholder="Enter username")
+        password = st.text_input("Password", type="password", placeholder="Enter password")
+        
+        submitted = st.form_submit_button("🔓 Login", type="primary", use_container_width=True)
+        
+        if submitted:
+            admin_username, admin_password = get_admin_credentials()
+            
+            if username == admin_username and password == admin_password:
+                st.session_state.is_authenticated = True
+                st.success("✅ Login successful! Redirecting...")
+                st.rerun()
+            else:
+                st.error("❌ Invalid username or password")
+    
+    st.markdown("---")
+    st.info("💡 Default credentials: username=`admin`, password=`admin123`")
+    st.info("💡 Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` environment variables to change defaults.")
+    
+    # Link to booking page for public access
+    st.markdown("---")
+    st.markdown("**Public Access:**")
+    if st.button("📅 Book a Meeting (Public)", use_container_width=True):
+        st.query_params["book"] = "1"
+        st.rerun()
+
 # Initialize database adapter
 DB_PATH = "calendar_agent.db"
 db_adapter = CalendarDBAdapter(db_path=DB_PATH)
 
-# Initialize session state
+# Initialize session state - ensure calendar persists across reloads
 if 'calendar' not in st.session_state or not isinstance(st.session_state.calendar, Calendar):
     # Try to load from database
     saved_events = db_adapter.load_all_events(Event, EventStatus)
@@ -54,6 +114,22 @@ if 'calendar' not in st.session_state or not isinstance(st.session_state.calenda
         print(f"🔍 DEBUG: Restored {len(st.session_state.calendar.events)} events to calendar")
     else:
         print("🔍 DEBUG: No saved events found in database")
+else:
+    # Calendar exists - ensure it has all events from database (reload on each page load to sync)
+    # This ensures any changes made via MCP/A2A are reflected in the UI
+    saved_events = db_adapter.load_all_events(Event, EventStatus)
+    if saved_events:
+        # Update calendar with events from database (merge, don't replace)
+        for event in saved_events:
+            # Ensure status is properly set
+            if isinstance(event.status, str) and hasattr(EventStatus, event.status.upper()):
+                try:
+                    event.status = EventStatus[event.status.upper()]
+                except:
+                    pass
+            # Add or update event in calendar
+            st.session_state.calendar.events[event.event_id] = event
+        print(f"🔍 DEBUG: Synced {len(saved_events)} events from database to existing calendar")
 
 if 'events_data' not in st.session_state:
     st.session_state.events_data = []
@@ -178,9 +254,21 @@ def booking_page():
     """Booking page accessible via /book route."""
     st.title("📅 Book a Meeting")
     
-    # Ensure calendar is properly initialized
+    # Ensure calendar is properly initialized - load from database if needed
     if 'calendar' not in st.session_state or not isinstance(st.session_state.calendar, Calendar):
+        # Load from database
+        saved_events = db_adapter.load_all_events(Event, EventStatus)
         st.session_state.calendar = Calendar(owner_agent_id="agent-alpha")
+        
+        # Restore events from database
+        if saved_events:
+            for event in saved_events:
+                if isinstance(event.status, str) and hasattr(EventStatus, event.status.upper()):
+                    try:
+                        event.status = EventStatus[event.status.upper()]
+                    except:
+                        pass
+                st.session_state.calendar.events[event.event_id] = event
     
     if 'preferences' not in st.session_state or not isinstance(st.session_state.preferences, BookingPreferences):
         st.session_state.preferences = BookingPreferences()
@@ -265,19 +353,20 @@ def booking_page():
                     if not matches_prefs:
                         st.warning(f"⚠️ Note: This time may not match the agent's preferred schedule ({prefs.preferred_start_hour}:00-{prefs.preferred_end_hour}:00 on {', '.join(prefs.preferred_days)})")
                     
-                    # Link to view calendar
-                    st.markdown("---")
-                    if st.button("📅 View Calendar", use_container_width=True):
-                        st.query_params.clear()
-                        st.rerun()
-                    
                 except ValueError as e:
                     st.error(f"❌ Error: {str(e)}")
     
+    # Buttons must be outside the form context
     st.markdown("---")
-    if st.button("← Back to Dashboard", use_container_width=True):
-        st.query_params.clear()
-        st.rerun()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📅 View Calendar", use_container_width=True):
+            st.query_params.clear()
+            st.rerun()
+    with col2:
+        if st.button("← Back to Dashboard", use_container_width=True):
+            st.query_params.clear()
+            st.rerun()
 
 
 def agentfacts_page():
@@ -504,18 +593,42 @@ def main():
     else:
         st.sidebar.info("⚪ A2A Server Not Started", icon="🤝")
     
-    # Check if this is a booking page request
+    # Add logout button in sidebar for authenticated users
+    if is_authenticated():
+        st.sidebar.markdown("---")
+        st.sidebar.success("✅ Logged in as Admin", icon="👤")
+        if st.sidebar.button("🚪 Logout", use_container_width=True):
+            st.query_params["page"] = "logout"
+            st.rerun()
+    
+    # Check if this is a booking page request (public access)
     query_params = st.query_params
     
-    # Handle /book route
+    # Handle /book route (public access - no authentication required)
     if 'book' in query_params or query_params.get('page') == 'book':
         booking_page()
         return
     
-    # Handle /agentfacts route
+    # Handle logout
+    if query_params.get('page') == 'logout':
+        st.session_state.is_authenticated = False
+        st.session_state.pop('is_admin', None)
+        st.success("👋 Logged out successfully")
+        st.query_params.clear()
+        st.rerun()
+    
+    # Check authentication for admin pages
+    if not is_authenticated():
+        login_page()
+        return
+    
+    # Handle /agentfacts route (admin only - requires authentication)
     if query_params.get('page') == 'agentfacts':
         agentfacts_page()
         return
+    
+    # Home/Dashboard page - Admin only (requires authentication)
+    # User is authenticated, show dashboard
     
     st.title("📅 Calendar Agent Dashboard")
     
@@ -546,36 +659,40 @@ def main():
         except Exception as e:
             st.error(f"Could not load AgentFacts: {e}")
     
-    # Ensure calendar is properly initialized (in case session state was reset)
-    # IMPORTANT: Only create new calendar if it doesn't exist, preserve existing one
-    calendar_initialized = False
-    if 'calendar' not in st.session_state:
-        st.session_state.calendar = Calendar(owner_agent_id="agent-alpha")
-        calendar_initialized = True
-    elif not isinstance(st.session_state.calendar, Calendar):
-        # Calendar exists but wrong type - try to preserve events
-        existing_events = {}
-        try:
-            if hasattr(st.session_state.calendar, 'events'):
-                existing_events = dict(st.session_state.calendar.events)  # Make a copy
-        except:
-            pass
-        
-        # Create new calendar
+    # Ensure calendar is properly initialized and synced with database
+    # The calendar should already be initialized at the top level, but ensure it's synced
+    if 'calendar' not in st.session_state or not isinstance(st.session_state.calendar, Calendar):
+        # Calendar was somehow lost - reload from database
+        saved_events = db_adapter.load_all_events(Event, EventStatus)
         st.session_state.calendar = Calendar(owner_agent_id="agent-alpha")
         
-        # Restore events if any were preserved
-        if existing_events:
-            for event_id, event in existing_events.items():
-                try:
-                    st.session_state.calendar.events[event_id] = event
-                except:
-                    pass
-        calendar_initialized = True
+        # Restore events from database
+        if saved_events:
+            for event in saved_events:
+                if isinstance(event.status, str) and hasattr(EventStatus, event.status.upper()):
+                    try:
+                        event.status = EventStatus[event.status.upper()]
+                    except:
+                        pass
+                st.session_state.calendar.events[event.event_id] = event
+            print(f"🔍 DEBUG: Dashboard - Reloaded {len(saved_events)} events from database")
+    else:
+        # Calendar exists - sync with database to ensure we have latest events
+        # This ensures any changes made via MCP/A2A are reflected
+        saved_events = db_adapter.load_all_events(Event, EventStatus)
+        if saved_events:
+            # Merge database events into calendar (don't replace, merge)
+            for event in saved_events:
+                if isinstance(event.status, str) and hasattr(EventStatus, event.status.upper()):
+                    try:
+                        event.status = EventStatus[event.status.upper()]
+                    except:
+                        pass
+                # Add or update event (preserves any in-memory changes)
+                st.session_state.calendar.events[event.event_id] = event
     
-    # Sync UI with calendar object after initialization check
-    if calendar_initialized or not hasattr(st.session_state, 'events_data') or len(st.session_state.get('events_data', [])) != len(st.session_state.calendar.get_all_events()):
-        update_events_data()
+    # Sync UI with calendar object
+    update_events_data()
     
     if 'preferences' not in st.session_state or not isinstance(st.session_state.preferences, BookingPreferences):
         st.session_state.preferences = BookingPreferences()
@@ -589,10 +706,95 @@ def main():
             st.query_params["book"] = "1"
             st.rerun()
     with col3:
-        # Display booking link
-        with st.expander("🔗 Share Booking Link"):
-            booking_url = "/?book=1"
+        # Display booking link with ngrok URL and QR code
+        with st.expander("🔗 Share Booking Link", expanded=True):
+            # Get Streamlit ngrok URL (default port 8501)
+            if 'streamlit_ngrok_url' not in st.session_state:
+                try:
+                    from pyngrok import ngrok
+                    # Get Streamlit's default port (8501)
+                    streamlit_port = 8501
+                    
+                    # Check if ngrok is available and configured
+                    try:
+                        # Try to get existing tunnels first
+                        tunnels = ngrok.get_tunnels()
+                        existing_tunnel = None
+                        for tunnel in tunnels:
+                            # Tunnel config addr can be in various formats
+                            tunnel_addr = str(tunnel.config.get('addr', '')).strip()
+                            port_str = str(streamlit_port)
+                            if (tunnel_addr == f'localhost:{streamlit_port}' or 
+                                tunnel_addr == f'127.0.0.1:{streamlit_port}' or 
+                                tunnel_addr == port_str or 
+                                tunnel_addr.endswith(f':{streamlit_port}') or
+                                tunnel_addr == f':{streamlit_port}'):
+                                existing_tunnel = tunnel
+                                print(f"🔍 Found existing tunnel for Streamlit port {streamlit_port}: {tunnel.public_url}")
+                                break
+                        
+                        if existing_tunnel:
+                            streamlit_ngrok_url = existing_tunnel.public_url.rstrip('/')
+                        else:
+                            # Create new ngrok tunnel for Streamlit
+                            tunnel = ngrok.connect(streamlit_port, "http")
+                            streamlit_ngrok_url = tunnel.public_url.rstrip('/')
+                        
+                        st.session_state.streamlit_ngrok_url = streamlit_ngrok_url
+                        print(f"✅ Created/Found ngrok tunnel for Streamlit: {streamlit_ngrok_url}")
+                    except Exception as ngrok_error:
+                        print(f"⚠️  ngrok error: {ngrok_error}")
+                        # Fallback to localhost if ngrok not available
+                        streamlit_ngrok_url = f"http://localhost:8501"
+                        st.session_state.streamlit_ngrok_url = streamlit_ngrok_url
+                        st.warning("⚠️ ngrok not available - using localhost URL")
+                except ImportError:
+                    # Fallback to localhost if pyngrok not installed
+                    streamlit_ngrok_url = f"http://localhost:8501"
+                    st.session_state.streamlit_ngrok_url = streamlit_ngrok_url
+                    st.warning("⚠️ pyngrok not installed - install with: pip install pyngrok")
+            else:
+                streamlit_ngrok_url = st.session_state.streamlit_ngrok_url
+            
+            # Create full booking URL
+            booking_url = f"{streamlit_ngrok_url}/?book=1"
+            
+            # Display the URL
+            st.markdown("**Booking URL:**")
             st.code(booking_url, language="text")
+            
+            # Button to show/hide QR code
+            if QRCODE_AVAILABLE:
+                if st.button("📱 Show QR Code", key="show_qr_code", use_container_width=True):
+                    st.session_state.show_booking_qr = True
+                    st.rerun()
+            
+            # Display QR code if button was clicked
+            if st.session_state.get('show_booking_qr', False) and QRCODE_AVAILABLE:
+                try:
+                    # Use web-based QR code generator (no dependencies needed)
+                    # Using qr-server.com API
+                    encoded_url = urllib.parse.quote(booking_url)
+                    qr_code_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={encoded_url}"
+                    
+                    st.image(qr_code_url, caption="📱 Scan to book a meeting", use_container_width=True)
+                    if st.button("❌ Hide QR Code", key="hide_qr_code", use_container_width=True):
+                        st.session_state.show_booking_qr = False
+                        st.rerun()
+                except Exception as e:
+                    st.warning(f"Could not generate QR code: {e}")
+                    st.error(f"Error details: {str(e)}")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("📋 Copy URL", key="copy_booking_url", use_container_width=True):
+                    st.write("💾 URL copied to clipboard!")
+            with col2:
+                if st.button("🔄 Refresh ngrok URL", key="refresh_ngrok", use_container_width=True):
+                    if 'streamlit_ngrok_url' in st.session_state:
+                        del st.session_state.streamlit_ngrok_url
+                    st.rerun()
+            
             st.caption("Share this link to allow others to book meetings with you")
     
     st.markdown("---")

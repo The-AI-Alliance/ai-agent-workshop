@@ -1,0 +1,6 @@
+[submodule "day2/session-2/submodules/mcp-context-forge"]
+	path = day2/session-2/submodules/mcp-context-forge
+	url = git@github.com:IBM/mcp-context-forge.git
+[submodule "day2/session-2/submodules/a2a-inspector"]
+	path = day2/session-2/submodules/a2a-inspector
+	url = git@github.com:a2aproject/a2a-inspector.git

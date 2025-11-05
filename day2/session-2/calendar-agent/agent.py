@@ -75,6 +75,7 @@ class Agent:
     def _get_endpoint_url(self, port: int, path: str = "") -> str:
         """
         Get the endpoint URL, using ngrok if available, otherwise localhost.
+        Checks for existing tunnels before creating new ones.
         
         Args:
             port: The port number
@@ -85,10 +86,35 @@ class Agent:
         """
         if NGROK_AVAILABLE:
             try:
-                # Get or create ngrok tunnel for this port
-                tunnel = ngrok.connect(port, "http")
-                public_url = tunnel.public_url.rstrip('/')
-                return f"{public_url}{path}"
+                # Check for existing tunnels first to avoid creating duplicates
+                tunnels = ngrok.get_tunnels()
+                existing_tunnel = None
+                for tunnel in tunnels:
+                    # Check if tunnel points to the same port
+                    # Tunnel config addr can be in various formats: "localhost:8000", "127.0.0.1:8000", "8000", ":8000"
+                    tunnel_addr = str(tunnel.config.get('addr', '')).strip()
+                    # Check various possible formats
+                    port_str = str(port)
+                    if (tunnel_addr == f'localhost:{port}' or 
+                        tunnel_addr == f'127.0.0.1:{port}' or 
+                        tunnel_addr == port_str or 
+                        tunnel_addr.endswith(f':{port}') or
+                        tunnel_addr == f':{port}'):
+                        existing_tunnel = tunnel
+                        print(f"🔍 Found existing tunnel for port {port}: {tunnel.public_url} (addr: {tunnel_addr})")
+                        break
+                
+                if existing_tunnel:
+                    # Reuse existing tunnel
+                    public_url = existing_tunnel.public_url.rstrip('/')
+                    print(f"✅ Reusing existing ngrok tunnel for port {port}: {public_url}")
+                    return f"{public_url}{path}"
+                else:
+                    # Create new tunnel only if no existing one found
+                    tunnel = ngrok.connect(port, "http")
+                    public_url = tunnel.public_url.rstrip('/')
+                    print(f"✅ Created new ngrok tunnel for port {port}: {public_url}")
+                    return f"{public_url}{path}"
             except Exception as e:
                 print(f"⚠️  ngrok not available ({e}), falling back to localhost")
                 return f"http://{self.host}:{port}{path}"

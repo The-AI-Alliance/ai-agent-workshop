@@ -535,6 +535,25 @@ def run_mcp_server(host: str = "localhost", port: int = 8000):
                         # Add MCP routes manually via custom routes (they're already defined above)
                         print(f"   Using custom MCP routes defined in FastMCP")
                     
+                    # Add agentfacts endpoint at root
+                    @main_app.get("/.well-known/agentfacts.json")
+                    async def get_agentfacts_root():
+                        """Serve AgentFacts from the local file."""
+                        try:
+                            agentfacts_path = Path(__file__).parent / "agentfacts.json"
+                            
+                            if agentfacts_path.exists():
+                                with agentfacts_path.open('r', encoding='utf-8') as f:
+                                    facts = json.load(f)
+                                from fastapi.responses import JSONResponse
+                                return JSONResponse(facts)
+                            else:
+                                from fastapi.responses import JSONResponse
+                                return JSONResponse({"error": "AgentFacts not found"}, status_code=404)
+                        except Exception as e:
+                            from fastapi.responses import JSONResponse
+                            return JSONResponse({"error": str(e)}, status_code=500)
+                    
                     # Also add the agent card route at root (it's already in A2A app, but we want it accessible)
                     # The A2A app should have it at /.well-known/agent-card.json
                     # But when mounted at /a2a, it becomes /a2a/.well-known/agent-card.json
