@@ -24,16 +24,23 @@ logger = logging.getLogger(__name__)
 class CalendarAdminAgent(BaseAgent):
     """Calendar Admin Agent backed by ADK for managing calendar requests."""
 
-    def __init__(self, agent_name: str, description: str, instructions: str):
+    def __init__(self, agent_name: str, description: str, instructions: str,
+                 host: str = "localhost", a2a_port: int = 8000, mcp_port: int = 8000):
         init_api_key()
 
         super().__init__(
             agent_name=agent_name,
             description=description,
             content_types=['text', 'text/plain'],
+            host=host,
+            a2a_port=a2a_port,
+            mcp_port=mcp_port
         )
 
-        logger.info(f'Init {self.agent_name}')
+        logger.info(f'✅ Calendar Admin Agent initialized: {self.agent_name}')
+        logger.info(f'   DID: {self.get_did()}')
+        logger.info(f'   A2A endpoint: {self.get_a2a_endpoint()}')
+        logger.info(f'   MCP endpoint: {self.get_mcp_endpoint()}')
 
         self.instructions = instructions
         self.agent = None
@@ -51,7 +58,7 @@ class CalendarAdminAgent(BaseAgent):
         generate_content_config = genai_types.GenerateContentConfig(
             temperature=0.0
         )
-        LITELLM_MODEL = os.getenv('LITELLM_MODEL', 'gemini/gemini-2.0-flash')
+        LITELLM_MODEL = os.getenv('LITELLM_MODEL', 'google/gemini-2.0-flash')
         self.agent = Agent(
             name=self.agent_name,
             instruction=self.instructions,

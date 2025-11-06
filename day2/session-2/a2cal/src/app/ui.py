@@ -363,6 +363,101 @@ def booking_page():
                 except ValueError as e:
                     st.error(f"❌ Error: {str(e)}")
     
+    # Booking Links section
+    st.markdown("---")
+    st.subheader("🔗 Share Booking Link")
+    
+    # Display booking link with ngrok URL and QR code
+    with st.expander("🔗 Share Booking Link", expanded=False):
+        # Get Streamlit ngrok URL (default port 8501)
+        if 'streamlit_ngrok_url' not in st.session_state:
+            try:
+                from pyngrok import ngrok
+                # Get Streamlit's default port (8501)
+                streamlit_port = 8501
+                
+                # Check if ngrok is available and configured
+                try:
+                    # Try to get existing tunnels first
+                    tunnels = ngrok.get_tunnels()
+                    existing_tunnel = None
+                    for tunnel in tunnels:
+                        # Tunnel config addr can be in various formats
+                        tunnel_addr = str(tunnel.config.get('addr', '')).strip()
+                        port_str = str(streamlit_port)
+                        if (tunnel_addr == f'localhost:{streamlit_port}' or 
+                            tunnel_addr == f'127.0.0.1:{streamlit_port}' or 
+                            tunnel_addr == port_str or 
+                            tunnel_addr.endswith(f':{streamlit_port}') or
+                            tunnel_addr == f':{streamlit_port}'):
+                            existing_tunnel = tunnel
+                            print(f"🔍 Found existing tunnel for Streamlit port {streamlit_port}: {tunnel.public_url}")
+                            break
+                    
+                    if existing_tunnel:
+                        streamlit_ngrok_url = existing_tunnel.public_url.rstrip('/')
+                    else:
+                        # Create new ngrok tunnel for Streamlit
+                        tunnel = ngrok.connect(streamlit_port, "http")
+                        streamlit_ngrok_url = tunnel.public_url.rstrip('/')
+                    
+                    st.session_state.streamlit_ngrok_url = streamlit_ngrok_url
+                    print(f"✅ Created/Found ngrok tunnel for Streamlit: {streamlit_ngrok_url}")
+                except Exception as ngrok_error:
+                    print(f"⚠️  ngrok error: {ngrok_error}")
+                    # Fallback to localhost if ngrok not available
+                    streamlit_ngrok_url = f"http://localhost:8501"
+                    st.session_state.streamlit_ngrok_url = streamlit_ngrok_url
+                    st.warning("⚠️ ngrok not available - using localhost URL")
+            except ImportError:
+                # Fallback to localhost if pyngrok not installed
+                streamlit_ngrok_url = f"http://localhost:8501"
+                st.session_state.streamlit_ngrok_url = streamlit_ngrok_url
+                st.warning("⚠️ pyngrok not installed - install with: pip install pyngrok")
+        else:
+            streamlit_ngrok_url = st.session_state.streamlit_ngrok_url
+        
+        # Create full booking URL
+        booking_url = f"{streamlit_ngrok_url}/?book=1"
+        
+        # Display the URL
+        st.markdown("**Booking URL:**")
+        st.code(booking_url, language="text")
+        
+        # Button to show/hide QR code
+        if QRCODE_AVAILABLE:
+            if st.button("📱 Show QR Code", key="show_qr_code", use_container_width=True):
+                st.session_state.show_booking_qr = True
+                st.rerun()
+        
+        # Display QR code if button was clicked
+        if st.session_state.get('show_booking_qr', False) and QRCODE_AVAILABLE:
+            try:
+                # Use web-based QR code generator (no dependencies needed)
+                # Using qr-server.com API
+                encoded_url = urllib.parse.quote(booking_url)
+                qr_code_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={encoded_url}"
+                
+                st.image(qr_code_url, caption="📱 Scan to book a meeting", use_container_width=True)
+                if st.button("❌ Hide QR Code", key="hide_qr_code", use_container_width=True):
+                    st.session_state.show_booking_qr = False
+                    st.rerun()
+            except Exception as e:
+                st.warning(f"Could not generate QR code: {e}")
+                st.error(f"Error details: {str(e)}")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📋 Copy URL", key="copy_booking_url", use_container_width=True):
+                st.write("💾 URL copied to clipboard!")
+        with col2:
+            if st.button("🔄 Refresh ngrok URL", key="refresh_ngrok", use_container_width=True):
+                if 'streamlit_ngrok_url' in st.session_state:
+                    del st.session_state.streamlit_ngrok_url
+                st.rerun()
+        
+        st.caption("Share this link to allow others to book meetings with you")
+    
     # Buttons must be outside the form context
     st.markdown("---")
     col1, col2 = st.columns(2)
@@ -376,34 +471,206 @@ def booking_page():
             st.rerun()
 
 
+def agents_page():
+    """Streamlit UI page for viewing all agents and their agent cards."""
+    import json
+    from pathlib import Path
+    
+    st.title("🤖 Agents")
+    st.markdown("View all available agents and their capabilities.")
+    
+    # Get agent cards directory
+    agent_cards_dir = Path(__file__).parent.parent / "agent_cards"
+    
+    if not agent_cards_dir.exists():
+        st.error(f"❌ Agent cards directory not found: {agent_cards_dir}")
+        return
+    
+    # Find all agent card JSON files
+    agent_card_files = list(agent_cards_dir.glob("*.json"))
+    
+    if not agent_card_files:
+        st.warning("⚠️ No agent cards found in the agent_cards directory.")
+        return
+    
+    st.markdown(f"**Found {len(agent_card_files)} agent(s)**")
+    st.markdown("---")
+    
+    # Display each agent
+    for idx, agent_card_file in enumerate(agent_card_files, 1):
+        try:
+            with agent_card_file.open('r', encoding='utf-8') as f:
+                agent_card = json.load(f)
+            
+            # Agent header
+            agent_name = agent_card.get('name', 'Unknown Agent')
+            agent_description = agent_card.get('description', 'No description available.')
+            agent_version = agent_card.get('version', 'Unknown')
+            agent_url = agent_card.get('url', 'N/A')
+            
+            # Create columns for agent info
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                st.markdown(f"### {idx}. {agent_name}")
+                st.markdown(f"**Description:** {agent_description}")
+            
+            with col2:
+                st.markdown(f"**Version:** `{agent_version}`")
+                if agent_url and agent_url != 'N/A':
+                    st.markdown(f"**URL:** `{agent_url}`")
+            
+            # Capabilities
+            capabilities = agent_card.get('capabilities', {})
+            if capabilities:
+                st.markdown("**Capabilities:**")
+                cap_cols = st.columns(len(capabilities))
+                for cap_idx, (cap_key, cap_value) in enumerate(capabilities.items()):
+                    with cap_cols[cap_idx]:
+                        status = "✅" if cap_value else "❌"
+                        st.markdown(f"{status} **{cap_key}:** {cap_value}")
+            
+            # Skills section
+            skills = agent_card.get('skills', [])
+            if skills:
+                st.markdown("**Skills:**")
+                for skill in skills:
+                    skill_name = skill.get('name', 'Unknown Skill')
+                    skill_desc = skill.get('description', 'No description')
+                    skill_tags = skill.get('tags', [])
+                    skill_examples = skill.get('examples', [])
+                    
+                    with st.expander(f"🔧 {skill_name}", expanded=False):
+                        st.markdown(f"**Description:** {skill_desc}")
+                        
+                        if skill_tags:
+                            st.markdown("**Tags:**")
+                            tag_str = ", ".join([f"`{tag}`" for tag in skill_tags])
+                            st.markdown(tag_str)
+                        
+                        if skill_examples:
+                            st.markdown("**Examples:**")
+                            for example in skill_examples:
+                                st.markdown(f"- {example}")
+            
+            # Tools section
+            tools = agent_card.get('tools', [])
+            if tools:
+                st.markdown("**Tools:**")
+                tool_desc = {tool.get('name', 'Unknown'): tool.get('description', 'No description') 
+                            for tool in tools}
+                
+                # Display tools in a compact format (show up to 9 tools)
+                tools_to_show = tools[:9]
+                tool_cols = st.columns(min(3, len(tools_to_show)))
+                for tool_idx, tool in enumerate(tools_to_show):
+                    tool_name = tool.get('name', 'Unknown')
+                    with tool_cols[tool_idx % 3]:
+                        with st.expander(f"🔨 {tool_name}", expanded=False):
+                            st.markdown(tool_desc.get(tool_name, 'No description'))
+                
+                if len(tools) > 9:
+                    st.info(f"💡 Showing {min(9, len(tools))} of {len(tools)} tools. See full agent card for complete list.")
+            
+            # Input/Output modes
+            input_modes = agent_card.get('defaultInputModes', [])
+            output_modes = agent_card.get('defaultOutputModes', [])
+            
+            if input_modes or output_modes:
+                io_col1, io_col2 = st.columns(2)
+                with io_col1:
+                    if input_modes:
+                        st.markdown("**Input Modes:**")
+                        st.markdown(", ".join([f"`{mode}`" for mode in input_modes]))
+                with io_col2:
+                    if output_modes:
+                        st.markdown("**Output Modes:**")
+                        st.markdown(", ".join([f"`{mode}`" for mode in output_modes]))
+            
+            # Full Agent Card JSON (expandable)
+            with st.expander("📄 View Full Agent Card JSON", expanded=False):
+                st.json(agent_card)
+            
+            # Instructions (if available)
+            instructions = agent_card.get('instructions', '')
+            if instructions:
+                with st.expander("📝 View Instructions", expanded=False):
+                    st.markdown(instructions)
+            
+            st.markdown("---")
+            
+        except json.JSONDecodeError as e:
+            st.error(f"❌ Error parsing agent card {agent_card_file.name}: {e}")
+            st.markdown("---")
+        except Exception as e:
+            st.error(f"❌ Error loading agent card {agent_card_file.name}: {e}")
+            import traceback
+            st.code(traceback.format_exc())
+            st.markdown("---")
+
+
 def agentfacts_page():
-    """Streamlit UI page for configuring AgentFacts."""
+    """Streamlit UI page for viewing and configuring AgentFacts."""
     from common.agentfacts import load_agentfacts, save_agentfacts
     
-    st.title("📋 AgentFacts Configuration")
-    st.markdown("Configure your agent's metadata and capabilities.")
+    st.title("📋 AgentFacts")
+    st.markdown("View and configure your agent's metadata and capabilities.")
     
-    # Get current agent DID
+    # Create tabs for View and Configure
+    tab1, tab2 = st.tabs(["👁️ View AgentFacts", "⚙️ Configure AgentFacts"])
+    
+    # View Tab
+    with tab1:
+        st.subheader("📋 AgentFacts JSON")
+        st.markdown("View your agent's current AgentFacts configuration.")
+        
+        try:
+            facts = load_agentfacts()
+            
+            # Display JSON
+            st.json(facts)
+            
+            # Show endpoint URL
+            base_url = st.session_state.get('base_server_url', 'http://localhost:8000')
+            agentfacts_url = f"{base_url}/.well-known/agentfacts.json"
+            
+            st.markdown("---")
+            st.markdown("**AgentFacts Endpoint:**")
+            st.code(agentfacts_url, language="text")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("📋 Copy Endpoint URL", key="copy_endpoint_url", use_container_width=True):
+                    st.write("💾 URL copied to clipboard!")
+            with col2:
+                if st.button("🔗 Open in New Tab", key="open_agentfacts_endpoint", use_container_width=True):
+                    st.markdown(f'<meta http-equiv="refresh" content="0; url={agentfacts_url}">', unsafe_allow_html=True)
+                    st.info(f"Opening: {agentfacts_url}")
+        except Exception as e:
+            st.error(f"Could not load AgentFacts: {e}")
+            import traceback
+            st.code(traceback.format_exc())
+    
+    # Configure Tab
+    with tab2:
+        st.subheader("⚙️ Configure AgentFacts")
+        st.markdown("Configure your agent's metadata and capabilities.")
+        
+        # Get current agent DID
     agent_did = st.session_state.get('agent_did')
     if not agent_did:
         try:
-            # Try to import Agent class (from external package or local module)
-            try:
-                from agent import Agent
-            except ImportError:
-                # Try alternative import paths
-                try:
-                    sys.path.insert(0, os.path.dirname(src_dir))
-                    from agent import Agent
-                except ImportError:
-                    st.error("⚠️ Agent class not found. Please ensure the agent module is available.")
-                    return
+            # Import Agent class from common.base_agent
+            from common.base_agent import Agent
             
             agent = Agent(name="Calendar Agent", host="localhost", a2a_port=8000, mcp_port=8000)
             agent_did = agent.get_did()
             st.session_state.agent_did = agent_did
+            st.session_state.agent = agent  # Store agent instance
         except Exception as e:
             st.error(f"Could not load agent DID: {e}")
+            import traceback
+            traceback.print_exc()
             return
     
     # Load current agent facts
@@ -545,55 +812,102 @@ def agentfacts_page():
 
 
 def main():
-    # Display Agent DID
-    if 'agent_did' not in st.session_state:
-        try:
-            # Try to import Agent class (from external package or local module)
-            try:
-                from agent import Agent
-            except ImportError:
-                # Try alternative import paths
-                try:
-                    sys.path.insert(0, os.path.dirname(src_dir))
-                    from agent import Agent
-                except ImportError:
-                    print("⚠️ Agent class not found. Please ensure the agent module is available.")
-                    Agent = None
-            
-            if Agent:
-                # Initialize agent if not already done
-                agent = Agent(name="Calendar Agent", host="localhost", a2a_port=8000, mcp_port=8000)
-                st.session_state.agent_did = agent.get_did()
-            else:
-                st.session_state.agent_did = None
-        except Exception as e:
-            st.session_state.agent_did = None
+    # Load server state from file (updated by main.py when servers start)
+    try:
+        from common.server_state import get_server_state
+        server_state = get_server_state()
+        
+        # Update session state with server status
+        if 'mcp_server_started' in server_state:
+            st.session_state.mcp_server_started = server_state.get('mcp_server_started', False)
+            st.session_state.mcp_server_url = server_state.get('mcp_server_url', 'Unknown')
+        
+        if 'a2a_server_started' in server_state:
+            st.session_state.a2a_server_started = server_state.get('a2a_server_started', False)
+            st.session_state.a2a_server_url = server_state.get('a2a_server_url', 'Unknown')
+        
+        if 'base_server_url' in server_state:
+            st.session_state.base_server_url = server_state.get('base_server_url', 'http://localhost:8000')
+        
+        # Load Calendar Admin Agent DID from server state
+        if 'calendar_admin_agent_did' in server_state:
+            st.session_state.calendar_admin_agent_did = server_state.get('calendar_admin_agent_did')
+    except Exception as e:
+        # If server state can't be loaded, use defaults
+        if 'mcp_server_started' not in st.session_state:
+            st.session_state.mcp_server_started = False
+        if 'a2a_server_started' not in st.session_state:
+            st.session_state.a2a_server_started = False
     
-    if st.session_state.get('agent_did'):
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### 🔐 Agent Identity")
+    # Display Calendar Admin Agent DID from server state
+    # The DID is already loaded from server_state above if available
+    # Fallback: try to create a generic agent if not in server state
+    if 'calendar_admin_agent_did' not in st.session_state or not st.session_state.get('calendar_admin_agent_did'):
+        try:
+            # Import Agent class from common.base_agent
+            from common.base_agent import Agent
+            
+            # Initialize agent if not already done (fallback)
+            agent = Agent(name="Calendar Manager Agent", host="localhost", a2a_port=8000, mcp_port=8000)
+            st.session_state.calendar_admin_agent_did = agent.get_did()
+            st.session_state.agent = agent  # Store agent instance for later use
+        except Exception as e:
+            print(f"⚠️ Error loading agent DID: {e}")
+            import traceback
+            traceback.print_exc()
+            st.session_state.calendar_admin_agent_did = None
+            st.session_state.agent = None
+    
+    # Display Calendar Admin Agent DID prominently in sidebar
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🔐 Calendar Admin Agent Identity")
+    
+    if st.session_state.get('calendar_admin_agent_did'):
         with st.sidebar.expander("📋 DID Peer", expanded=True):
             st.write("**Decentralized Identifier:**")
-            st.code(st.session_state.agent_did, language=None)
-            if st.button("📋 Copy DID", key="copy_did"):
-                st.write("💾 DID copied to clipboard!")
-        
-        # Add AgentFacts link
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### 📋 AgentFacts")
-        if st.sidebar.button("📋 Configure AgentFacts", key="configure_agentfacts", use_container_width=True):
-            st.query_params["page"] = "agentfacts"
-            st.rerun()
-        
-        # Show AgentFacts endpoint
-        agentfacts_url = f"http://localhost:8000/.well-known/agentfacts.json"
-        with st.sidebar.expander("🔗 AgentFacts Endpoint", expanded=False):
-            st.write("**Endpoint URL:**")
-            st.code(agentfacts_url, language=None)
-            if st.button("📋 Copy URL", key="copy_agentfacts_url"):
-                st.write("💾 URL copied to clipboard!")
-            if st.button("🔗 Open AgentFacts", key="open_agentfacts"):
-                st.markdown(f"[View AgentFacts]({agentfacts_url})")
+            st.code(st.session_state.calendar_admin_agent_did, language=None)
+            
+            # Copy button with better feedback
+            if st.button("📋 Copy DID", key="copy_did", use_container_width=True):
+                st.success("💾 DID copied to clipboard!")
+            
+            # Show agent name
+            st.markdown("---")
+            st.write("**Agent Name:**")
+            st.info("Calendar Manager Agent")
+            
+            # Show agent description if available
+            agent = st.session_state.get('agent')
+            if agent and agent.description:
+                st.write("**Description:**")
+                st.caption(agent.description)
+    else:
+        # Show warning if DID is not available
+        st.sidebar.warning("⚠️ Calendar Admin Agent DID not available")
+    
+    # Add navigation links (always show)
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 📋 Navigation")
+    if st.sidebar.button("📅 Book Meeting", key="sidebar_book_meeting", use_container_width=True):
+        st.query_params["book"] = "1"
+        st.rerun()
+    if st.sidebar.button("📋 AgentFacts", key="view_agentfacts", use_container_width=True):
+        st.query_params["page"] = "agentfacts"
+        st.rerun()
+    if st.sidebar.button("🤖 View Agents", key="view_agents", use_container_width=True):
+        st.query_params["page"] = "agents"
+        st.rerun()
+    
+    # Show AgentFacts endpoint (use base server URL from state if available)
+    base_url = st.session_state.get('base_server_url', 'http://localhost:8000')
+    agentfacts_url = f"{base_url}/.well-known/agentfacts.json"
+    with st.sidebar.expander("🔗 AgentFacts Endpoint", expanded=False):
+        st.write("**Endpoint URL:**")
+        st.code(agentfacts_url, language=None)
+        if st.button("📋 Copy URL", key="copy_agentfacts_url"):
+            st.write("💾 URL copied to clipboard!")
+        if st.button("🔗 Open AgentFacts", key="open_agentfacts"):
+            st.markdown(f"[View AgentFacts]({agentfacts_url})")
     
     # Display MCP server status and URL
     if st.session_state.get('mcp_server_started', False):
@@ -665,37 +979,15 @@ def main():
         agentfacts_page()
         return
     
+    # Handle /agents route (admin only - requires authentication)
+    if query_params.get('page') == 'agents':
+        agents_page()
+        return
+    
     # Home/Dashboard page - Admin only (requires authentication)
     # User is authenticated, show dashboard
     
     st.title("📅 Calendar Agent Dashboard")
-    
-    # Add AgentFacts quick access button at the top
-    col1, col2, col3 = st.columns([2, 1, 1])
-    with col1:
-        st.markdown("")  # Spacing
-    with col2:
-        if st.button("📋 Configure AgentFacts", key="top_configure_agentfacts", use_container_width=True):
-            st.query_params["page"] = "agentfacts"
-            st.rerun()
-    with col3:
-        agentfacts_url = f"http://localhost:8000/.well-known/agentfacts.json"
-        if st.button("🔗 View AgentFacts JSON", key="view_agentfacts_json", use_container_width=True):
-            st.query_params["view_agentfacts"] = "true"
-            st.rerun()
-    
-    # Show AgentFacts JSON if requested
-    if st.query_params.get("view_agentfacts") == "true":
-        try:
-            from common.agentfacts import load_agentfacts
-            facts = load_agentfacts()
-            with st.expander("📋 AgentFacts JSON", expanded=True):
-                st.json(facts)
-                if st.button("❌ Close", key="close_agentfacts"):
-                    st.query_params.clear()
-                    st.rerun()
-        except Exception as e:
-            st.error(f"Could not load AgentFacts: {e}")
     
     # Ensure calendar is properly initialized and synced with database
     # The calendar should already be initialized at the top level, but ensure it's synced
@@ -736,114 +1028,18 @@ def main():
         st.session_state.preferences = BookingPreferences()
     
     # Add prominent booking banner at top
-    col1, col2, col3 = st.columns([2, 1, 1])
+    col1, col2 = st.columns([3, 1])
     with col1:
         st.info("📅 Need to schedule a meeting? Use the booking page or sidebar button!")
     with col2:
         if st.button("📅 Book Meeting", use_container_width=True, type="primary"):
             st.query_params["book"] = "1"
             st.rerun()
-    with col3:
-        # Display booking link with ngrok URL and QR code
-        with st.expander("🔗 Share Booking Link", expanded=True):
-            # Get Streamlit ngrok URL (default port 8501)
-            if 'streamlit_ngrok_url' not in st.session_state:
-                try:
-                    from pyngrok import ngrok
-                    # Get Streamlit's default port (8501)
-                    streamlit_port = 8501
-                    
-                    # Check if ngrok is available and configured
-                    try:
-                        # Try to get existing tunnels first
-                        tunnels = ngrok.get_tunnels()
-                        existing_tunnel = None
-                        for tunnel in tunnels:
-                            # Tunnel config addr can be in various formats
-                            tunnel_addr = str(tunnel.config.get('addr', '')).strip()
-                            port_str = str(streamlit_port)
-                            if (tunnel_addr == f'localhost:{streamlit_port}' or 
-                                tunnel_addr == f'127.0.0.1:{streamlit_port}' or 
-                                tunnel_addr == port_str or 
-                                tunnel_addr.endswith(f':{streamlit_port}') or
-                                tunnel_addr == f':{streamlit_port}'):
-                                existing_tunnel = tunnel
-                                print(f"🔍 Found existing tunnel for Streamlit port {streamlit_port}: {tunnel.public_url}")
-                                break
-                        
-                        if existing_tunnel:
-                            streamlit_ngrok_url = existing_tunnel.public_url.rstrip('/')
-                        else:
-                            # Create new ngrok tunnel for Streamlit
-                            tunnel = ngrok.connect(streamlit_port, "http")
-                            streamlit_ngrok_url = tunnel.public_url.rstrip('/')
-                        
-                        st.session_state.streamlit_ngrok_url = streamlit_ngrok_url
-                        print(f"✅ Created/Found ngrok tunnel for Streamlit: {streamlit_ngrok_url}")
-                    except Exception as ngrok_error:
-                        print(f"⚠️  ngrok error: {ngrok_error}")
-                        # Fallback to localhost if ngrok not available
-                        streamlit_ngrok_url = f"http://localhost:8501"
-                        st.session_state.streamlit_ngrok_url = streamlit_ngrok_url
-                        st.warning("⚠️ ngrok not available - using localhost URL")
-                except ImportError:
-                    # Fallback to localhost if pyngrok not installed
-                    streamlit_ngrok_url = f"http://localhost:8501"
-                    st.session_state.streamlit_ngrok_url = streamlit_ngrok_url
-                    st.warning("⚠️ pyngrok not installed - install with: pip install pyngrok")
-            else:
-                streamlit_ngrok_url = st.session_state.streamlit_ngrok_url
-            
-            # Create full booking URL
-            booking_url = f"{streamlit_ngrok_url}/?book=1"
-            
-            # Display the URL
-            st.markdown("**Booking URL:**")
-            st.code(booking_url, language="text")
-            
-            # Button to show/hide QR code
-            if QRCODE_AVAILABLE:
-                if st.button("📱 Show QR Code", key="show_qr_code", use_container_width=True):
-                    st.session_state.show_booking_qr = True
-                    st.rerun()
-            
-            # Display QR code if button was clicked
-            if st.session_state.get('show_booking_qr', False) and QRCODE_AVAILABLE:
-                try:
-                    # Use web-based QR code generator (no dependencies needed)
-                    # Using qr-server.com API
-                    encoded_url = urllib.parse.quote(booking_url)
-                    qr_code_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={encoded_url}"
-                    
-                    st.image(qr_code_url, caption="📱 Scan to book a meeting", use_container_width=True)
-                    if st.button("❌ Hide QR Code", key="hide_qr_code", use_container_width=True):
-                        st.session_state.show_booking_qr = False
-                        st.rerun()
-                except Exception as e:
-                    st.warning(f"Could not generate QR code: {e}")
-                    st.error(f"Error details: {str(e)}")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("📋 Copy URL", key="copy_booking_url", use_container_width=True):
-                    st.write("💾 URL copied to clipboard!")
-            with col2:
-                if st.button("🔄 Refresh ngrok URL", key="refresh_ngrok", use_container_width=True):
-                    if 'streamlit_ngrok_url' in st.session_state:
-                        del st.session_state.streamlit_ngrok_url
-                    st.rerun()
-            
-            st.caption("Share this link to allow others to book meetings with you")
     
     st.markdown("---")
     
     # Sidebar for adding/removing events
     with st.sidebar:
-        # Booking link button
-        if st.button("📅 Book a Meeting", use_container_width=True, type="primary"):
-            st.query_params["book"] = "1"
-            st.rerun()
-        
         st.markdown("---")
         st.header("⚙️ Booking Preferences")
         

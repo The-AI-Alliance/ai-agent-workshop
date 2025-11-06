@@ -14,21 +14,32 @@ from a2a.server.tasks import (
 )
 from a2a.types import AgentCard
 from common.agent_executor import GenericAgentExecutor
+from common import prompts
+from .calendar_admin_agent import CalendarAdminAgent
+from .calendar_booking_agent import CalendarBookingAgent
 
 logger = logging.getLogger(__name__)
 
-
-def get_agent(agent_card: AgentCard):
-    """Get the agent, given an agent card."""
+def get_agent(agent_card: AgentCard, host: str = "localhost", a2a_port: int = 8000, mcp_port: int = 8000):
+    """Get the agent, given an agent card.
+    
+    Args:
+        agent_card: The agent card defining the agent
+        host: Host for service endpoints (for DID generation)
+        a2a_port: Port for A2A service endpoint (for DID generation)
+        mcp_port: Port for MCP service endpoint (for DID generation)
+    """
     try:
         if agent_card.name == 'Calendar Manager Agent':
-            from .calendar_admin_agent import CalendarAdminAgent
             # Get instructions from agent card or use default
             instructions = getattr(agent_card, 'instructions', 'You are a helpful calendar management assistant that accepts and manages calendar requests.')
             return CalendarAdminAgent(
                 agent_name=agent_card.name,
                 description=agent_card.description or 'Calendar Manager Agent',
-                instructions=instructions
+                instructions=prompts.CALENDAR_ADMIN_INSTRUCTIONS,
+                host=host,
+                a2a_port=a2a_port,
+                mcp_port=mcp_port
             )
         if agent_card.name == 'Calendar Booking Agent':
             from .calendar_booking_agent import CalendarBookingAgent
@@ -37,17 +48,23 @@ def get_agent(agent_card: AgentCard):
             return CalendarBookingAgent(
                 agent_name=agent_card.name,
                 description=agent_card.description or 'Calendar Booking Agent',
-                instructions=instructions
+                instructions=prompts.CALENDAR_BOOKING_INSTRUCTIONS,
+                host=host,
+                a2a_port=a2a_port,
+                mcp_port=mcp_port
             )
     except Exception as e:
         raise e
 
 
-def create_a2a_app(agent_card_path: str):
+def create_a2a_app(agent_card_path: str, host: str = "localhost", a2a_port: int = 8000, mcp_port: int = 8000):
     """Create an A2A agent server application.
     
     Args:
         agent_card_path: Path to the agent card JSON file
+        host: Host for service endpoints (for DID generation)
+        a2a_port: Port for A2A service endpoint (for DID generation)
+        mcp_port: Port for MCP service endpoint (for DID generation)
         
     Returns:
         Starlette application instance
@@ -68,8 +85,29 @@ def create_a2a_app(agent_card_path: str):
             client, config_store=push_notification_config_store
         )
 
+        agent = get_agent(agent_card, host=host, a2a_port=a2a_port, mcp_port=mcp_port)
+        
+        # Store agent instance and DID for UI access
+        # Only store if it's a CalendarAdminAgent (has get_did method)
+        if hasattr(agent, 'get_did'):
+            try:
+                agent_did = agent.get_did()
+                logger.info(f'🔐 Agent {agent_card.name} DID: {agent_did}')
+                print(f'🔐 Agent {agent_card.name} DID: {agent_did}')
+                # Store in server state for UI access (specifically for Calendar Admin Agent)
+                if agent_card.name == 'Calendar Manager Agent':
+                    from common.server_state import set_calendar_admin_agent_did
+                    set_calendar_admin_agent_did(agent_did)
+                    logger.info(f'✅ Calendar Admin Agent DID stored in server state: {agent_did}')
+                    print(f'✅ Calendar Admin Agent DID stored in server state: {agent_did}')
+            except Exception as e:
+                logger.error(f'❌ Could not get agent DID for {agent_card.name}: {e}')
+                print(f'❌ Could not get agent DID for {agent_card.name}: {e}')
+                import traceback
+                logger.error(traceback.format_exc())
+        
         request_handler = DefaultRequestHandler(
-            agent_executor=GenericAgentExecutor(agent=get_agent(agent_card)),
+            agent_executor=GenericAgentExecutor(agent=agent),
             task_store=InMemoryTaskStore(),
             push_config_store=push_notification_config_store,
             push_sender=push_notification_sender,

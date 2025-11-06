@@ -24,13 +24,17 @@ logger = logging.getLogger(__name__)
 class CalendarBookingAgent(BaseAgent):
     """Calendar Booking Agent backed by ADK."""
 
-    def __init__(self, agent_name: str, description: str, instructions: str):
+    def __init__(self, agent_name: str, description: str, instructions: str,
+                 host: str = "localhost", a2a_port: int = 8000, mcp_port: int = 8000):
         init_api_key()
 
         super().__init__(
             agent_name=agent_name,
             description=description,
             content_types=['text', 'text/plain'],
+            host=host,
+            a2a_port=a2a_port,
+            mcp_port=mcp_port
         )
 
         logger.info(f'Init {self.agent_name}')
