@@ -18,36 +18,10 @@ from a2a.server.tasks import (
     InMemoryTaskStore,
 )
 from a2a.types import AgentCard
-from common.prompts import prompts
 from common.agent_executor import GenericAgentExecutor
+from agents.server import get_agent
 
 logger = logging.getLogger(__name__)
-
-
-def get_agent(agent_card: AgentCard):
-    """Get the agent, given an agent card."""
-    try:
-        if agent_card.name == 'Calendar Manager Agent':
-            from .calendar_admin_agent import CalendarAdminAgent
-            # Get instructions from agent card or use default
-            instructions = getattr(agent_card, 'instructions', 'You are a helpful calendar management assistant that accepts and manages calendar requests.')
-            return CalendarAdminAgent(
-                agent_name=agent_card.name,
-                description=agent_card.description or 'Calendar Manager Agent',
-                instructions=instructions
-            )
-        if agent_card.name == 'Calendar Booking Agent':
-            from .calendar_booking_agent import CalendarBookingAgent
-            # Get instructions from agent card or use default
-            instructions = getattr(agent_card, 'instructions', 'You are a helpful calendar booking assistant.')
-            return CalendarBookingAgent(
-                agent_name=agent_card.name,
-                description=agent_card.description or 'Calendar Booking Agent',
-                instructions=instructions
-            )
-    except Exception as e:
-        raise e
-
 
 @click.command()
 @click.option('--host', 'host', default='localhost')
@@ -68,8 +42,10 @@ def main(host, port, agent_card):
             client, config_store=push_notification_config_store
         )
 
+        agent = get_agent(agent_card)
+        print("got agent")
         request_handler = DefaultRequestHandler(
-            agent_executor=GenericAgentExecutor(agent=get_agent(agent_card)),
+            agent_executor=GenericAgentExecutor(agent=agent),
             task_store=InMemoryTaskStore(),
             push_config_store=push_notification_config_store,
             push_sender=push_notification_sender,

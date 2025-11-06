@@ -1,6 +1,7 @@
 """A2A Agent server functions for integration."""
 import json
 import logging
+import traceback
 from pathlib import Path
 
 import httpx
@@ -15,6 +16,7 @@ from a2a.server.tasks import (
 from a2a.types import AgentCard
 from common.agent_executor import GenericAgentExecutor
 from common import prompts
+from common.server_state import register_agent_did, set_calendar_admin_agent_did
 from .calendar_admin_agent import CalendarAdminAgent
 from .calendar_booking_agent import CalendarBookingAgent
 
@@ -42,7 +44,6 @@ def get_agent(agent_card: AgentCard, host: str = "localhost", a2a_port: int = 80
                 mcp_port=mcp_port
             )
         if agent_card.name == 'Calendar Booking Agent':
-            from .calendar_booking_agent import CalendarBookingAgent
             # Get instructions from agent card or use default
             instructions = getattr(agent_card, 'instructions', 'You are a helpful calendar booking assistant.')
             return CalendarBookingAgent(
@@ -94,16 +95,22 @@ def create_a2a_app(agent_card_path: str, host: str = "localhost", a2a_port: int 
                 agent_did = agent.get_did()
                 logger.info(f'🔐 Agent {agent_card.name} DID: {agent_did}')
                 print(f'🔐 Agent {agent_card.name} DID: {agent_did}')
+                
+                # Register agent DID in server state for well-known endpoints
+                # Use absolute path to agent card file
+                agent_card_abs_path = Path(agent_card_path).resolve()
+                register_agent_did(agent_did, agent_card.name, str(agent_card_abs_path))
+                logger.info(f'✅ Agent {agent_card.name} DID registered: {agent_did}')
+                logger.info(f'   Agent card path: {agent_card_abs_path}')
+                
                 # Store in server state for UI access (specifically for Calendar Admin Agent)
                 if agent_card.name == 'Calendar Manager Agent':
-                    from common.server_state import set_calendar_admin_agent_did
                     set_calendar_admin_agent_did(agent_did)
                     logger.info(f'✅ Calendar Admin Agent DID stored in server state: {agent_did}')
                     print(f'✅ Calendar Admin Agent DID stored in server state: {agent_did}')
             except Exception as e:
                 logger.error(f'❌ Could not get agent DID for {agent_card.name}: {e}')
                 print(f'❌ Could not get agent DID for {agent_card.name}: {e}')
-                import traceback
                 logger.error(traceback.format_exc())
         
         request_handler = DefaultRequestHandler(

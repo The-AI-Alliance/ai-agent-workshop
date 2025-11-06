@@ -227,6 +227,86 @@ class Calendar:
     def clear(self):
         """Clear all events from the calendar."""
         self.events.clear()
+    
+    def get_available_slots(self, start_date: datetime, end_date: datetime, duration: str = "30m", buffer_minutes: int = 15) -> List[Dict]:
+        """Get available time slots between start_date and end_date.
+        
+        Args:
+            start_date: Start datetime for the search window
+            end_date: End datetime for the search window
+            duration: Duration of the meeting (e.g., "30m", "1h", "45m")
+            buffer_minutes: Buffer time between meetings in minutes (default: 15)
+            
+        Returns:
+            List of dictionaries with available time slots, each containing:
+            - start: ISO format datetime string
+            - end: ISO format datetime string
+            - duration: duration string
+        """
+        # Parse duration to minutes
+        duration_str = duration.lower().strip()
+        if duration_str.endswith('m'):
+            duration_minutes = int(duration_str[:-1])
+        elif duration_str.endswith('h'):
+            duration_minutes = int(duration_str[:-1]) * 60
+        else:
+            duration_minutes = int(duration_str)
+        
+        # Get all booked/confirmed/accepted events in the time range
+        booked_events = []
+        for event in self.events.values():
+            status_str = event.status.value if hasattr(event.status, 'value') else str(event.status)
+            status_str = status_str.lower()
+            # Only consider events that block time
+            if status_str in ['booked', 'confirmed', 'accepted']:
+                if start_date <= event.time <= end_date or start_date <= event.get_end_time() <= end_date:
+                    booked_events.append(event)
+        
+        # Sort by start time
+        booked_events.sort(key=lambda e: e.time)
+        
+        # Find available slots
+        available_slots = []
+        current_time = start_date
+        
+        for event in booked_events:
+            # If there's a gap before this event, add it as a slot
+            gap_start = current_time
+            gap_end = event.time
+            
+            # Add buffer time requirement
+            effective_gap = (gap_end - gap_start).total_seconds() / 60
+            
+            if effective_gap >= (duration_minutes + buffer_minutes):
+                # Add slots in this gap
+                slot_start = gap_start
+                while slot_start + timedelta(minutes=duration_minutes + buffer_minutes) <= gap_end:
+                    slot_end = slot_start + timedelta(minutes=duration_minutes)
+                    if slot_end <= end_date:
+                        available_slots.append({
+                            "start": slot_start.isoformat(),
+                            "end": slot_end.isoformat(),
+                            "duration": duration
+                        })
+                    # Move to next slot (with buffer)
+                    slot_start += timedelta(minutes=duration_minutes + buffer_minutes)
+            
+            # Update current_time to after this event (with buffer)
+            current_time = max(current_time, event.get_end_time() + timedelta(minutes=buffer_minutes))
+        
+        # Check for available slots after the last event
+        if current_time < end_date:
+            slot_start = current_time
+            while slot_start + timedelta(minutes=duration_minutes) <= end_date:
+                slot_end = slot_start + timedelta(minutes=duration_minutes)
+                available_slots.append({
+                    "start": slot_start.isoformat(),
+                    "end": slot_end.isoformat(),
+                    "duration": duration
+                })
+                slot_start += timedelta(minutes=duration_minutes + buffer_minutes)
+        
+        return available_slots
 
 
 class BookingPreferences(pydantic.BaseModel):

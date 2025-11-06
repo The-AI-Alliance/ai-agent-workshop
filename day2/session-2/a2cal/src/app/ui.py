@@ -1,12 +1,29 @@
 """Streamlit UI for Calendar Agent."""
-import streamlit as st
-from datetime import datetime, timedelta
-from streamlit_calendar import calendar as st_calendar
-import sys
+import json
 import os
+import sys
+import traceback
+import urllib.parse
+from pathlib import Path
+from datetime import datetime, timedelta
+
+import streamlit as st
+from streamlit_calendar import calendar as st_calendar
 import importlib.util
 import io
-import urllib.parse
+
+# Try to import optional dependencies
+try:
+    from pyngrok import ngrok
+    NGROK_AVAILABLE = True
+except ImportError:
+    NGROK_AVAILABLE = False
+    ngrok = None
+
+# Import common modules
+from common.agentfacts import load_agentfacts, save_agentfacts
+from common.base_agent import Agent
+from common.server_state import get_server_state
 
 # Use web-based QR code generation (no dependencies needed)
 QRCODE_AVAILABLE = True
@@ -365,77 +382,87 @@ def booking_page():
     
     # Booking Links section
     st.markdown("---")
-    st.subheader("🔗 Share Booking Link")
+    st.subheader("🔗 Share Meeting Link")
+    st.markdown("Share this link to allow others to book meetings with you.")
     
     # Display booking link with ngrok URL and QR code
-    with st.expander("🔗 Share Booking Link", expanded=False):
-        # Get Streamlit ngrok URL (default port 8501)
-        if 'streamlit_ngrok_url' not in st.session_state:
+    # Get Streamlit ngrok URL (default port 8501)
+    if 'streamlit_ngrok_url' not in st.session_state:
+        streamlit_port = 8501
+        
+        if NGROK_AVAILABLE and ngrok:
             try:
-                from pyngrok import ngrok
-                # Get Streamlit's default port (8501)
-                streamlit_port = 8501
+                # Try to get existing tunnels first
+                tunnels = ngrok.get_tunnels()
+                existing_tunnel = None
+                for tunnel in tunnels:
+                    # Tunnel config addr can be in various formats
+                    tunnel_addr = str(tunnel.config.get('addr', '')).strip()
+                    port_str = str(streamlit_port)
+                    if (tunnel_addr == f'localhost:{streamlit_port}' or 
+                        tunnel_addr == f'127.0.0.1:{streamlit_port}' or 
+                        tunnel_addr == port_str or 
+                        tunnel_addr.endswith(f':{streamlit_port}') or
+                        tunnel_addr == f':{streamlit_port}'):
+                        existing_tunnel = tunnel
+                        print(f"🔍 Found existing tunnel for Streamlit port {streamlit_port}: {tunnel.public_url}")
+                        break
                 
-                # Check if ngrok is available and configured
-                try:
-                    # Try to get existing tunnels first
-                    tunnels = ngrok.get_tunnels()
-                    existing_tunnel = None
-                    for tunnel in tunnels:
-                        # Tunnel config addr can be in various formats
-                        tunnel_addr = str(tunnel.config.get('addr', '')).strip()
-                        port_str = str(streamlit_port)
-                        if (tunnel_addr == f'localhost:{streamlit_port}' or 
-                            tunnel_addr == f'127.0.0.1:{streamlit_port}' or 
-                            tunnel_addr == port_str or 
-                            tunnel_addr.endswith(f':{streamlit_port}') or
-                            tunnel_addr == f':{streamlit_port}'):
-                            existing_tunnel = tunnel
-                            print(f"🔍 Found existing tunnel for Streamlit port {streamlit_port}: {tunnel.public_url}")
-                            break
-                    
-                    if existing_tunnel:
-                        streamlit_ngrok_url = existing_tunnel.public_url.rstrip('/')
-                    else:
-                        # Create new ngrok tunnel for Streamlit
-                        tunnel = ngrok.connect(streamlit_port, "http")
-                        streamlit_ngrok_url = tunnel.public_url.rstrip('/')
-                    
-                    st.session_state.streamlit_ngrok_url = streamlit_ngrok_url
-                    print(f"✅ Created/Found ngrok tunnel for Streamlit: {streamlit_ngrok_url}")
-                except Exception as ngrok_error:
-                    print(f"⚠️  ngrok error: {ngrok_error}")
-                    # Fallback to localhost if ngrok not available
-                    streamlit_ngrok_url = f"http://localhost:8501"
-                    st.session_state.streamlit_ngrok_url = streamlit_ngrok_url
-                    st.warning("⚠️ ngrok not available - using localhost URL")
-            except ImportError:
-                # Fallback to localhost if pyngrok not installed
+                if existing_tunnel:
+                    streamlit_ngrok_url = existing_tunnel.public_url.rstrip('/')
+                else:
+                    # Create new ngrok tunnel for Streamlit
+                    tunnel = ngrok.connect(streamlit_port, "http")
+                    streamlit_ngrok_url = tunnel.public_url.rstrip('/')
+                
+                st.session_state.streamlit_ngrok_url = streamlit_ngrok_url
+                print(f"✅ Created/Found ngrok tunnel for Streamlit: {streamlit_ngrok_url}")
+            except Exception as ngrok_error:
+                print(f"⚠️  ngrok error: {ngrok_error}")
+                # Fallback to localhost if ngrok not available
                 streamlit_ngrok_url = f"http://localhost:8501"
                 st.session_state.streamlit_ngrok_url = streamlit_ngrok_url
-                st.warning("⚠️ pyngrok not installed - install with: pip install pyngrok")
+                st.warning("⚠️ ngrok not available - using localhost URL")
         else:
-            streamlit_ngrok_url = st.session_state.streamlit_ngrok_url
-        
-        # Create full booking URL
-        booking_url = f"{streamlit_ngrok_url}/?book=1"
-        
-        # Display the URL
-        st.markdown("**Booking URL:**")
-        st.code(booking_url, language="text")
-        
-        # Button to show/hide QR code
-        if QRCODE_AVAILABLE:
-            if st.button("📱 Show QR Code", key="show_qr_code", use_container_width=True):
-                st.session_state.show_booking_qr = True
-                st.rerun()
+            # Fallback to localhost if pyngrok not installed
+            streamlit_ngrok_url = f"http://localhost:8501"
+            st.session_state.streamlit_ngrok_url = streamlit_ngrok_url
+            st.warning("⚠️ pyngrok not installed - install with: pip install pyngrok")
+    else:
+        streamlit_ngrok_url = st.session_state.streamlit_ngrok_url
+    
+    # Create full booking URL
+    booking_url = f"{streamlit_ngrok_url}/?book=1"
+    
+    # Display the URL
+    st.markdown("**Booking URL:**")
+    st.code(booking_url, language="text")
+    
+    # Copy and refresh buttons
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📋 Copy URL", key="copy_booking_url", use_container_width=True):
+            st.success("💾 URL copied to clipboard!")
+    with col2:
+        if st.button("🔄 Refresh ngrok URL", key="refresh_ngrok", use_container_width=True):
+            if 'streamlit_ngrok_url' in st.session_state:
+                del st.session_state.streamlit_ngrok_url
+            st.rerun()
+    
+    # QR Code section
+    st.markdown("---")
+    if QRCODE_AVAILABLE:
+        if st.button("📱 Show QR Code", key="show_qr_code", use_container_width=True):
+            st.session_state.show_booking_qr = True
+            st.rerun()
         
         # Display QR code if button was clicked
-        if st.session_state.get('show_booking_qr', False) and QRCODE_AVAILABLE:
+        if st.session_state.get('show_booking_qr', False):
             try:
                 # Use web-based QR code generator (no dependencies needed)
                 # Using qr-server.com API
                 encoded_url = urllib.parse.quote(booking_url)
+                # TODO : fix dependencies
                 qr_code_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={encoded_url}"
                 
                 st.image(qr_code_url, caption="📱 Scan to book a meeting", use_container_width=True)
@@ -445,18 +472,6 @@ def booking_page():
             except Exception as e:
                 st.warning(f"Could not generate QR code: {e}")
                 st.error(f"Error details: {str(e)}")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("📋 Copy URL", key="copy_booking_url", use_container_width=True):
-                st.write("💾 URL copied to clipboard!")
-        with col2:
-            if st.button("🔄 Refresh ngrok URL", key="refresh_ngrok", use_container_width=True):
-                if 'streamlit_ngrok_url' in st.session_state:
-                    del st.session_state.streamlit_ngrok_url
-                st.rerun()
-        
-        st.caption("Share this link to allow others to book meetings with you")
     
     # Buttons must be outside the form context
     st.markdown("---")
@@ -473,9 +488,6 @@ def booking_page():
 
 def agents_page():
     """Streamlit UI page for viewing all agents and their agent cards."""
-    import json
-    from pathlib import Path
-    
     st.title("🤖 Agents")
     st.markdown("View all available agents and their capabilities.")
     
@@ -508,12 +520,27 @@ def agents_page():
             agent_version = agent_card.get('version', 'Unknown')
             agent_url = agent_card.get('url', 'N/A')
             
+            # Try to get agent DID from server state
+            agent_did = None
+            try:
+                server_state = get_server_state()
+                agents = server_state.get('agents', {})
+                # Find DID by matching agent name
+                for did, agent_info in agents.items():
+                    if agent_info.get('name') == agent_name:
+                        agent_did = did
+                        break
+            except Exception:
+                pass
+            
             # Create columns for agent info
             col1, col2 = st.columns([3, 1])
             
             with col1:
                 st.markdown(f"### {idx}. {agent_name}")
                 st.markdown(f"**Description:** {agent_description}")
+                if agent_did:
+                    st.markdown(f"**DID:** `{agent_did}`")
             
             with col2:
                 st.markdown(f"**Version:** `{agent_version}`")
@@ -609,10 +636,312 @@ def agents_page():
             st.markdown("---")
 
 
+def use_agent_to_book_page():
+    """Streamlit UI page for using an agent (via A2A or MCP) to book an invite."""
+    st.title("🤝 Use Agent To Book Invite")
+    st.markdown("Connect to an agent using their DID and book a meeting via A2A or MCP.")
+    
+    st.markdown("---")
+    
+    # DID Input Section
+    st.subheader("🔐 Agent DID")
+    agent_did = st.text_input(
+        "Agent Decentralized Identifier (DID)",
+        placeholder="did:peer:2...",
+        help="Enter the DID of the agent you want to connect to",
+        key="agent_did_input"
+    )
+    
+    if not agent_did:
+        st.info("💡 Enter an agent DID to begin booking")
+        st.markdown("---")
+        st.markdown("**Example DID format:** `did:peer:2.Vz6MksKa...`")
+        return
+    
+    # Validate DID format (basic check)
+    if not agent_did.startswith("did:"):
+        st.warning("⚠️ DID should start with 'did:'")
+        return
+    
+    st.success(f"✅ Agent DID: `{agent_did}`")
+    st.markdown("---")
+    
+    # Create tabs for A2A and MCP
+    tab_a2a, tab_mcp = st.tabs(["📡 Book Via A2A", "💬 Book Via MCP"])
+    
+    # A2A Tab
+    with tab_a2a:
+        st.subheader("📡 Book Via A2A (Agent-to-Agent)")
+        st.markdown("Use A2A protocol to find available time slots and book a meeting.")
+        
+        st.markdown("---")
+        
+        # Find Time Button
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("🔍 Find Time", key="a2a_find_time", type="primary", use_container_width=True):
+                st.info("🔍 Finding available time slots...")
+                # TODO: Implement A2A client to find available slots
+                st.success("✅ Available slots found! (Implementation coming soon)")
+        
+        st.markdown("---")
+        
+        # Placeholder for A2A results
+        st.info("💡 A2A booking functionality will be implemented here")
+        st.markdown("""
+        **Planned features:**
+        - Find available time slots from the agent
+        - Display available slots in a calendar
+        - Book a meeting slot directly
+        """)
+    
+    # MCP Tab
+    with tab_mcp:
+        st.subheader("💬 Book Via MCP (Model Context Protocol)")
+        st.markdown("Use MCP to chat with the agent and book a meeting through conversation.")
+        
+        st.markdown("---")
+        
+        # Initialize chat history in session state
+        if 'mcp_chat_history' not in st.session_state:
+            st.session_state.mcp_chat_history = []
+        
+        # Display chat history
+        st.subheader("💬 Chat")
+        
+        # Chat container
+        chat_container = st.container()
+        
+        with chat_container:
+            # Display chat messages
+            for idx, message in enumerate(st.session_state.mcp_chat_history):
+                if message.get('role') == 'user':
+                    with st.chat_message("user"):
+                        st.write(message.get('content', ''))
+                elif message.get('role') == 'assistant':
+                    with st.chat_message("assistant"):
+                        st.write(message.get('content', ''))
+        
+        st.markdown("---")
+        
+        # Chat input
+        user_input = st.chat_input("Type your message to the agent...")
+        
+        if user_input:
+            # Add user message to chat history
+            st.session_state.mcp_chat_history.append({
+                'role': 'user',
+                'content': user_input
+            })
+            
+            # Display user message immediately
+            with st.chat_message("user"):
+                st.write(user_input)
+            
+            # Simulate agent response (placeholder)
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    # TODO: Implement MCP client to send message and get response
+                    response = f"Agent received: {user_input}. (MCP client implementation coming soon)"
+                    st.write(response)
+                    
+                    # Add assistant response to chat history
+                    st.session_state.mcp_chat_history.append({
+                        'role': 'assistant',
+                        'content': response
+                    })
+            
+            st.rerun()
+        
+        # Clear chat button
+        if st.button("🗑️ Clear Chat", key="clear_mcp_chat"):
+            st.session_state.mcp_chat_history = []
+            st.rerun()
+        
+        st.markdown("---")
+        st.info("💡 MCP chat functionality will be implemented here")
+        st.markdown("""
+        **Planned features:**
+        - Real-time chat interface with MCP agent
+        - Natural language booking requests
+        - Context-aware conversation
+        """)
+
+
+def proposed_events_logs_page():
+    """Streamlit UI page for reviewing logs of proposed events."""
+    st.title("📋 Proposed Events Logs")
+    st.markdown("Review all proposed meeting requests and their details.")
+    
+    st.markdown("---")
+    
+    # Ensure calendar is properly initialized
+    if 'calendar' not in st.session_state or not isinstance(st.session_state.calendar, Calendar):
+        st.error("❌ Calendar not initialized. Please go back to the dashboard first.")
+        if st.button("← Back to Dashboard", use_container_width=True):
+            st.query_params.clear()
+            st.rerun()
+        return
+    
+    # Get all proposed events
+    all_events = st.session_state.calendar.get_all_events()
+    proposed_events = [
+        event for event in all_events 
+        if get_status_value(event.status).lower() == "proposed"
+    ]
+    
+    # Sort by creation time (newest first)
+    proposed_events.sort(key=lambda x: x.created_at, reverse=True)
+    
+    # Display statistics
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Proposed Events", len(proposed_events))
+    with col2:
+        total_events = len(all_events)
+        st.metric("Total Events", total_events)
+    with col3:
+        if total_events > 0:
+            percentage = (len(proposed_events) / total_events) * 100
+            st.metric("Proposed %", f"{percentage:.1f}%")
+    
+    st.markdown("---")
+    
+    if not proposed_events:
+        st.info("📭 No proposed events found. All meeting requests have been processed.")
+        st.markdown("---")
+        if st.button("← Back to Dashboard", use_container_width=True, type="primary"):
+            st.query_params.clear()
+            st.rerun()
+        return
+    
+    # Display proposed events in a table/expander format
+    st.subheader(f"📋 Proposed Events ({len(proposed_events)})")
+    
+    # Filter and sort options
+    col1, col2 = st.columns(2)
+    with col1:
+        sort_option = st.selectbox(
+            "Sort by",
+            options=["Newest First", "Oldest First", "Time (Upcoming)", "Time (Past)", "Partner Name"],
+            index=0
+        )
+    with col2:
+        search_partner = st.text_input(
+            "Filter by Partner Agent ID",
+            placeholder="Enter agent ID to filter...",
+            key="filter_partner_proposed"
+        )
+    
+    # Apply filters
+    filtered_events = proposed_events
+    if search_partner:
+        filtered_events = [
+            event for event in filtered_events
+            if search_partner.lower() in event.partner_agent_id.lower()
+        ]
+    
+    # Apply sorting
+    if sort_option == "Newest First":
+        filtered_events.sort(key=lambda x: x.created_at, reverse=True)
+    elif sort_option == "Oldest First":
+        filtered_events.sort(key=lambda x: x.created_at)
+    elif sort_option == "Time (Upcoming)":
+        filtered_events.sort(key=lambda x: x.time)
+    elif sort_option == "Time (Past)":
+        filtered_events.sort(key=lambda x: x.time, reverse=True)
+    elif sort_option == "Partner Name":
+        filtered_events.sort(key=lambda x: x.partner_agent_id)
+    
+    if not filtered_events:
+        st.warning(f"⚠️ No proposed events found matching the filter criteria.")
+        st.markdown("---")
+        if st.button("← Back to Dashboard", use_container_width=True, type="primary"):
+            st.query_params.clear()
+            st.rerun()
+        return
+    
+    # Display each proposed event
+    for idx, event in enumerate(filtered_events, 1):
+        with st.expander(
+            f"#{idx} - {event.partner_agent_id} | {event.time.strftime('%Y-%m-%d %H:%M')} | Duration: {event.duration}",
+            expanded=False
+        ):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown("**Event Details**")
+                st.write(f"**Event ID:** `{event.event_id}`")
+                st.write(f"**Partner Agent:** {event.partner_agent_id}")
+                st.write(f"**Status:** {get_status_value(event.status)}")
+            
+            with col2:
+                st.markdown("**Time Information**")
+                st.write(f"**Date & Time:** {event.time.strftime('%Y-%m-%d %H:%M')}")
+                st.write(f"**Duration:** {event.duration}")
+                # Calculate end time
+                duration_str = event.duration.lower().strip()
+                if duration_str.endswith('m'):
+                    minutes = int(duration_str[:-1])
+                elif duration_str.endswith('h'):
+                    minutes = int(duration_str[:-1]) * 60
+                else:
+                    minutes = int(duration_str)
+                end_time = event.time + timedelta(minutes=minutes)
+                st.write(f"**End Time:** {end_time.strftime('%Y-%m-%d %H:%M')}")
+            
+            with col3:
+                st.markdown("**Timestamps**")
+                st.write(f"**Created:** {event.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
+                if hasattr(event, 'updated_at') and event.updated_at:
+                    st.write(f"**Updated:** {event.updated_at.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            st.markdown("---")
+            
+            # Quick actions
+            st.markdown("**Quick Actions**")
+            action_col1, action_col2, action_col3 = st.columns(3)
+            
+            with action_col1:
+                if st.button("✅ Accept", key=f"accept_proposed_{event.event_id}", type="primary", use_container_width=True):
+                    updated_event = st.session_state.calendar.accept_event(event.event_id)
+                    if updated_event:
+                        db_adapter.save_event(updated_event)
+                        st.success("✅ Event accepted!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to accept event")
+            
+            with action_col2:
+                if st.button("❌ Reject", key=f"reject_proposed_{event.event_id}", type="secondary", use_container_width=True):
+                    updated_event = st.session_state.calendar.reject_event(event.event_id)
+                    if updated_event:
+                        db_adapter.save_event(updated_event)
+                        st.success("❌ Event rejected!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to reject event")
+            
+            with action_col3:
+                if st.button("🗑️ Delete", key=f"delete_proposed_{event.event_id}", use_container_width=True):
+                    if st.session_state.calendar.remove_event(event.event_id):
+                        db_adapter.delete_event(event.event_id)
+                        st.success("🗑️ Event deleted!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to delete event")
+        
+        st.markdown("---")
+    
+    # Back to dashboard button at the bottom
+    st.markdown("---")
+    if st.button("← Back to Dashboard", use_container_width=True, type="primary"):
+        st.query_params.clear()
+        st.rerun()
+
+
 def agentfacts_page():
     """Streamlit UI page for viewing and configuring AgentFacts."""
-    from common.agentfacts import load_agentfacts, save_agentfacts
-    
     st.title("📋 AgentFacts")
     st.markdown("View and configure your agent's metadata and capabilities.")
     
@@ -657,21 +986,17 @@ def agentfacts_page():
         st.markdown("Configure your agent's metadata and capabilities.")
         
         # Get current agent DID
-    agent_did = st.session_state.get('agent_did')
-    if not agent_did:
-        try:
-            # Import Agent class from common.base_agent
-            from common.base_agent import Agent
-            
-            agent = Agent(name="Calendar Agent", host="localhost", a2a_port=8000, mcp_port=8000)
-            agent_did = agent.get_did()
-            st.session_state.agent_did = agent_did
-            st.session_state.agent = agent  # Store agent instance
-        except Exception as e:
-            st.error(f"Could not load agent DID: {e}")
-            import traceback
-            traceback.print_exc()
-            return
+        agent_did = st.session_state.get('agent_did')
+        if not agent_did:
+            try:
+                agent = Agent(name="Calendar Agent", host="localhost", a2a_port=8000, mcp_port=8000)
+                agent_did = agent.get_did()
+                st.session_state.agent_did = agent_did
+                st.session_state.agent = agent  # Store agent instance
+            except Exception as e:
+                st.error(f"Could not load agent DID: {e}")
+                traceback.print_exc()
+                return
     
     # Load current agent facts
     facts = load_agentfacts()
@@ -814,7 +1139,6 @@ def agentfacts_page():
 def main():
     # Load server state from file (updated by main.py when servers start)
     try:
-        from common.server_state import get_server_state
         server_state = get_server_state()
         
         # Update session state with server status
@@ -844,9 +1168,6 @@ def main():
     # Fallback: try to create a generic agent if not in server state
     if 'calendar_admin_agent_did' not in st.session_state or not st.session_state.get('calendar_admin_agent_did'):
         try:
-            # Import Agent class from common.base_agent
-            from common.base_agent import Agent
-            
             # Initialize agent if not already done (fallback)
             agent = Agent(name="Calendar Manager Agent", host="localhost", a2a_port=8000, mcp_port=8000)
             st.session_state.calendar_admin_agent_did = agent.get_did()
@@ -888,14 +1209,26 @@ def main():
     # Add navigation links (always show)
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📋 Navigation")
-    if st.sidebar.button("📅 Book Meeting", key="sidebar_book_meeting", use_container_width=True):
+    
+    # Share Meeting Link button - prominent placement
+    if st.sidebar.button("🔗 Share Meeting Link", key="sidebar_share_meeting_link", use_container_width=True, type="primary"):
         st.query_params["book"] = "1"
         st.rerun()
+    
+    st.sidebar.markdown("---")
+    
+    # Other navigation items
     if st.sidebar.button("📋 AgentFacts", key="view_agentfacts", use_container_width=True):
         st.query_params["page"] = "agentfacts"
         st.rerun()
     if st.sidebar.button("🤖 View Agents", key="view_agents", use_container_width=True):
         st.query_params["page"] = "agents"
+        st.rerun()
+    if st.sidebar.button("🤝 Use Agent To Book Invite", key="use_agent_to_book", use_container_width=True):
+        st.query_params["page"] = "use_agent_to_book"
+        st.rerun()
+    if st.sidebar.button("📋 Proposed Events Logs", key="view_proposed_events", use_container_width=True):
+        st.query_params["page"] = "proposed_events_logs"
         st.rerun()
     
     # Show AgentFacts endpoint (use base server URL from state if available)
@@ -984,6 +1317,16 @@ def main():
         agents_page()
         return
     
+    # Handle /use-agent-to-book route (admin only - requires authentication)
+    if query_params.get('page') == 'use_agent_to_book':
+        use_agent_to_book_page()
+        return
+    
+    # Handle /proposed-events-logs route (admin only - requires authentication)
+    if query_params.get('page') == 'proposed_events_logs':
+        proposed_events_logs_page()
+        return
+    
     # Home/Dashboard page - Admin only (requires authentication)
     # User is authenticated, show dashboard
     
@@ -1028,12 +1371,16 @@ def main():
         st.session_state.preferences = BookingPreferences()
     
     # Add prominent booking banner at top
-    col1, col2 = st.columns([3, 1])
+    col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
         st.info("📅 Need to schedule a meeting? Use the booking page or sidebar button!")
     with col2:
-        if st.button("📅 Book Meeting", use_container_width=True, type="primary"):
+        if st.button("🔗 Share Meeting Link", use_container_width=True, type="primary"):
             st.query_params["book"] = "1"
+            st.rerun()
+    with col3:
+        if st.button("🤝 Book Meeting With Agent", use_container_width=True, type="primary"):
+            st.query_params["page"] = "use_agent_to_book"
             st.rerun()
     
     st.markdown("---")

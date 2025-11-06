@@ -80,3 +80,30 @@ def set_calendar_admin_agent_did(agent_did: str) -> None:
     """
     update_server_state(calendar_admin_agent_did=agent_did)
 
+
+def register_agent_did(agent_did: str, agent_name: str, agent_card_path: str = None) -> None:
+    """Register an agent DID with its metadata.
+    
+    Args:
+        agent_did: The DID of the agent
+        agent_name: The name of the agent
+        agent_card_path: Optional path to the agent card JSON file
+    """
+    state = get_server_state()
+    agents = state.get('agents', {})
+    agents[agent_did] = {
+        "name": agent_name,
+        "agent_card_path": agent_card_path
+    }
+    update_server_state(agents=agents)
+
+
+def get_all_agent_dids() -> dict:
+    """Get all registered agent DIDs.
+    
+    Returns:
+        Dictionary mapping DIDs to agent metadata
+    """
+    state = get_server_state()
+    return state.get('agents', {})
+

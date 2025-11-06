@@ -8,23 +8,26 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 import base58
 
-# Try to import ngrok for public URLs
+# Import ngrok for public URLs (required)
 try:
     from pyngrok import ngrok
     NGROK_AVAILABLE = True
 except ImportError:
-    NGROK_AVAILABLE = False
-    ngrok = None
+    import sys
+    print("❌ ERROR: pyngrok is not installed. Please install it with: pip install pyngrok")
+    sys.exit(1)
 
-# Use local did:peer:2 implementation
+# Import did:peer:2 implementation
 try:
-    from common.did_peer_2 import generate, resolve, KeySpec
+    from common.did_peer_2 import generate, resolve, KeySpec, PurposeCode
     DID_PEER_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     DID_PEER_AVAILABLE = False
     generate = None
     resolve = None
     KeySpec = None
+    PurposeCode = None
+    logging.warning(f"Could not import did_peer_2: {e}")
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +86,8 @@ class Agent:
             except Exception as e:
                 logger.warning(f"⚠️  Error resolving DID document: {e}")
                 print(f"⚠️  Error resolving DID document: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
         
         # Initialize service endpoints
         logger.info(f"🔗 Setting up service endpoints for agent: {self.agent_name}")
@@ -108,7 +113,7 @@ class Agent:
         Returns:
             The endpoint URL
         """
-        if NGROK_AVAILABLE:
+        if NGROK_AVAILABLE and ngrok:
             try:
                 # Check for existing tunnels first to avoid creating duplicates
                 tunnels = ngrok.get_tunnels()
@@ -182,6 +187,50 @@ class Agent:
                             # Valid new did:peer:2 format, return it
                             logger.info(f"🔑 Loaded existing DID for {self.agent_name}: {did}")
                             print(f"🔑 Loaded existing DID for {self.agent_name}: {did}")
+                            
+                            # Extract keys from existing DID document so we can add services later
+                            try:
+                                logger.debug("Extracting keys from existing DID document...")
+                                current_doc = resolve(did)
+                                if "verificationMethod" in current_doc:
+                                    for vm in current_doc["verificationMethod"]:
+                                        if "publicKeyMultibase" in vm:
+                                            # Determine purpose from verification relationships
+                                            purpose_code = "V"  # Default to authentication
+                                            key_id = f"#{vm['id'].split('#')[-1]}"
+                                            if "authentication" in current_doc and key_id in current_doc.get("authentication", []):
+                                                purpose_code = "V"
+                                            elif "keyAgreement" in current_doc and key_id in current_doc.get("keyAgreement", []):
+                                                purpose_code = "E"
+                                            elif "assertionMethod" in current_doc and key_id in current_doc.get("assertionMethod", []):
+                                                purpose_code = "A"
+                                            elif "capabilityInvocation" in current_doc and key_id in current_doc.get("capabilityInvocation", []):
+                                                purpose_code = "I"
+                                            elif "capabilityDelegation" in current_doc and key_id in current_doc.get("capabilityDelegation", []):
+                                                purpose_code = "D"
+                                            
+                                            # Use PurposeCode from did_peer_2 module
+                                            try:
+                                                purpose_enum = PurposeCode(purpose_code)
+                                                self._keys.append(KeySpec(purpose_enum, vm["publicKeyMultibase"]))
+                                                logger.debug(f"Extracted key with purpose {purpose_code}")
+                                            except ValueError as e:
+                                                logger.warning(f"Invalid purpose code {purpose_code}: {e}")
+                                                # Try to map to a valid purpose code
+                                                purpose_enum = PurposeCode.authentication  # Default fallback
+                                                self._keys.append(KeySpec(purpose_enum, vm["publicKeyMultibase"]))
+                                                logger.debug(f"Using default authentication purpose for key")
+                                    
+                                    if self._keys:
+                                        logger.info(f"✅ Extracted {len(self._keys)} key(s) from existing DID")
+                                    else:
+                                        logger.warning("⚠️ No keys extracted from existing DID document")
+                                else:
+                                    logger.warning("⚠️ No verificationMethod found in DID document")
+                            except Exception as e:
+                                logger.warning(f"⚠️ Could not extract keys from existing DID: {e}")
+                                # Continue anyway - we'll try to extract later when adding services
+                            
                             return did
                         else:
                             # Old hash-based format, need to migrate
@@ -221,6 +270,10 @@ class Agent:
             auth_key = KeySpec.authentication(public_key_multibase)
             self._keys = [auth_key]
             logger.debug("Created authentication KeySpec")
+            
+            # Store private key for later use (needed if we need to regenerate DID)
+            self._private_key = private_key
+            logger.debug("Stored private key")
             
             # Generate DID with authentication key and empty services (will add services later)
             logger.info("Generating DID with authentication key...")
@@ -263,28 +316,74 @@ class Agent:
             return
         
         try:
-            # If we don't have keys stored, extract from resolved document
+            # Ensure we have keys - they should be stored from DID creation or extraction
             if not self._keys:
-                current_doc = resolve(self.did)
-                if "verificationMethod" in current_doc:
-                    for vm in current_doc["verificationMethod"]:
-                        if "publicKeyMultibase" in vm:
-                            # Determine purpose from verification relationships
-                            purpose_code = "V"  # Default to authentication
-                            key_id = f"#{vm['id'].split('#')[-1]}"
-                            if "authentication" in current_doc and key_id in current_doc.get("authentication", []):
-                                purpose_code = "V"
-                            elif "keyAgreement" in current_doc and key_id in current_doc.get("keyAgreement", []):
-                                purpose_code = "E"
-                            elif "assertionMethod" in current_doc and key_id in current_doc.get("assertionMethod", []):
-                                purpose_code = "A"
-                            elif "capabilityInvocation" in current_doc and key_id in current_doc.get("capabilityInvocation", []):
-                                purpose_code = "I"
-                            elif "capabilityDelegation" in current_doc and key_id in current_doc.get("capabilityDelegation", []):
-                                purpose_code = "D"
-                            
-                            from did_peer2 import PurposeCode
-                            self._keys.append(KeySpec(PurposeCode(purpose_code), vm["publicKeyMultibase"]))
+                logger.warning("⚠️ No keys available for DID regeneration. Extracting from resolved document...")
+                logger.debug(f"Resolving DID: {self.did}")
+                try:
+                    current_doc = resolve(self.did)
+                    logger.debug(f"Resolved DID document: {list(current_doc.keys())}")
+                    
+                    if "verificationMethod" in current_doc:
+                        logger.debug(f"Found {len(current_doc['verificationMethod'])} verification method(s)")
+                        for vm in current_doc["verificationMethod"]:
+                            logger.debug(f"Processing verification method: {vm.get('id', 'unknown')}")
+                            if "publicKeyMultibase" in vm:
+                                # Determine purpose from verification relationships
+                                purpose_code = "V"  # Default to authentication
+                                key_id = f"#{vm['id'].split('#')[-1]}"
+                                logger.debug(f"Key ID: {key_id}, checking verification relationships...")
+                                
+                                if "authentication" in current_doc and key_id in current_doc.get("authentication", []):
+                                    purpose_code = "V"
+                                    logger.debug("Key is for authentication")
+                                elif "keyAgreement" in current_doc and key_id in current_doc.get("keyAgreement", []):
+                                    purpose_code = "E"
+                                    logger.debug("Key is for keyAgreement")
+                                elif "assertionMethod" in current_doc and key_id in current_doc.get("assertionMethod", []):
+                                    purpose_code = "A"
+                                    logger.debug("Key is for assertionMethod")
+                                elif "capabilityInvocation" in current_doc and key_id in current_doc.get("capabilityInvocation", []):
+                                    purpose_code = "I"
+                                    logger.debug("Key is for capabilityInvocation")
+                                elif "capabilityDelegation" in current_doc and key_id in current_doc.get("capabilityDelegation", []):
+                                    purpose_code = "D"
+                                    logger.debug("Key is for capabilityDelegation")
+                                
+                                # Use PurposeCode from did_peer_2 module
+                                try:
+                                    purpose_enum = PurposeCode(purpose_code)
+                                    key_spec = KeySpec(purpose_enum, vm["publicKeyMultibase"])
+                                    self._keys.append(key_spec)
+                                    logger.info(f"✅ Extracted key with purpose {purpose_code}: {vm['publicKeyMultibase'][:20]}...")
+                                except ValueError as e:
+                                    logger.warning(f"Invalid purpose code {purpose_code}: {e}")
+                                    # Try to map to a valid purpose code (default to authentication)
+                                    try:
+                                        purpose_enum = PurposeCode.authentication  # Default fallback
+                                        key_spec = KeySpec(purpose_enum, vm["publicKeyMultibase"])
+                                        self._keys.append(key_spec)
+                                        logger.info(f"✅ Using default authentication purpose for key: {vm['publicKeyMultibase'][:20]}...")
+                                    except Exception as e2:
+                                        logger.error(f"❌ Could not create KeySpec: {e2}")
+                    else:
+                        logger.warning("⚠️ No verificationMethod found in resolved DID document")
+                        logger.debug(f"DID document keys: {list(current_doc.keys())}")
+                except Exception as e:
+                    logger.error(f"❌ Error resolving DID or extracting keys: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                
+                if not self._keys:
+                    logger.error("❌ Could not extract keys from DID document. Cannot add services.")
+                    logger.error(f"DID: {self.did}")
+                    logger.error("This might happen if:")
+                    logger.error("  1. DID document resolution failed")
+                    logger.error("  2. DID document has no verificationMethod")
+                    logger.error("  3. Key extraction failed (invalid purpose codes)")
+                    return
+            else:
+                logger.debug(f"✅ Using {len(self._keys)} existing key(s) for DID regeneration")
             
             # Resolve to get existing services
             current_doc = resolve(self.did)
@@ -321,7 +420,17 @@ class Agent:
             
             if services_changed:
                 # Generate new DID with exactly 2 services (A2A and MCP)
+                # Ensure keys are valid
+                if not self._keys:
+                    logger.error("❌ Cannot regenerate DID: no keys available")
+                    return
+                
                 updated_did = generate(keys=self._keys, services=services)
+                
+                # Validate the generated DID format
+                if not updated_did.startswith("did:peer:2"):
+                    logger.error(f"❌ Generated DID has invalid format: {updated_did[:50]}...")
+                    return
                 
                 # Update the DID and save it
                 if updated_did != self.did:
@@ -330,18 +439,25 @@ class Agent:
                     try:
                         with did_path.open("w", encoding="utf-8") as f:
                             f.write(self.did)
-                    except Exception:
-                        pass
+                        logger.info(f"💾 Saved updated DID to {did_path}")
+                    except Exception as e:
+                        logger.warning(f"Could not save updated DID: {e}")
                     
                     # Re-resolve the document
-                    self.did_doc = resolve(self.did)
-                    print(f"✅ Updated DID with service endpoints: A2A={self.a2a_url}, MCP={self.mcp_url}")
+                    try:
+                        self.did_doc = resolve(self.did)
+                        print(f"✅ Updated DID with service endpoints: A2A={self.a2a_url}, MCP={self.mcp_url}")
+                    except Exception as e:
+                        logger.error(f"❌ Error resolving updated DID: {e}")
+                        # Revert to old DID if resolution fails
+                        self.did = current_doc.get("id", self.did)
             else:
                 print(f"ℹ️  Service endpoints unchanged, keeping existing DID")
                 
         except Exception as e:
             print(f"⚠️  Error adding service endpoints: {e}")
             import traceback
+            logger.error(traceback.format_exc())
             traceback.print_exc()
     
     def get_did(self) -> str:

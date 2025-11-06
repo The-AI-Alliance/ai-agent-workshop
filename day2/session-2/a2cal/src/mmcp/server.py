@@ -231,7 +231,7 @@ def create_mcp_app(host=None, port=None, db_adapter=None, calendar=None):
     # When mounted at /mcp prefix, it becomes accessible at /mcp/sse
     # Note: Unlike mcp.run(path="/mcp") which handles path internally,
     # http_app() returns the base app - mounting at /mcp should handle the prefix
-    mcp_app = mcp.http_app(path='/mcp')
+    mcp_app = mcp.http_app(path='/')
     logger.info("Got FastMCP http_app() (with stateless_http=True for SSE support)")
     logger.info("SSE endpoint will be at /mcp/sse after mounting at /mcp prefix")
     

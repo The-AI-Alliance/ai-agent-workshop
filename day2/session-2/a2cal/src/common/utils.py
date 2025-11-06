@@ -52,6 +52,16 @@ def config_logger(logger):
     logger.addHandler(console_handler)
 
 
+def is_debug() -> bool:
+    """Check if DEBUG mode is enabled.
+    
+    Returns:
+        True if DEBUG environment variable is set to 'true', '1', 'yes', or defaults to True
+    """
+    debug_value = os.getenv('DEBUG', 'true').lower()
+    return debug_value in ('true', '1', 'yes', 'on')
+
+
 def get_mcp_server_config() -> ServerConfig:
     """Get the MCP server configuration."""
     return ServerConfig(

@@ -196,7 +196,7 @@ def _register_routes(app_instance: FastAPI) -> None:
             base_url = f"{request_url.scheme}://{request_url.hostname}"
             if request_url.port:
                 base_url = f"{base_url}:{request_url.port}"
-            agent_card["url"] = f"{base_url}/agent"
+            agent_card["url"] = f"{base_url}/agent/"
             
             return agent_card
             
@@ -321,7 +321,7 @@ def _register_routes(app_instance: FastAPI) -> None:
             base_url = f"{request_url.scheme}://{request_url.hostname}"
             if request_url.port:
                 base_url = f"{base_url}:{request_url.port}"
-            agent_card["url"] = f"{base_url}/agent"
+            agent_card["url"] = f"{base_url}/agent/"
             
             return agent_card
             
@@ -454,8 +454,10 @@ def attach_a2a_server(a2a_app, prefix: str = "/agent") -> None:
         logger.warning("This might still work if it's ASGI-compatible")
     
     logger.info(f"Mounting A2A app at {prefix}...")
-    app.mount(prefix, a2a_app)
-    logger.info(f"Mounted A2A app at {prefix}")
+    # Ensure prefix has trailing slash for proper Starlette mount behavior
+    mount_prefix = prefix if prefix.endswith('/') else prefix + '/'
+    app.mount(mount_prefix, a2a_app)
+    logger.info(f"Mounted A2A app at {mount_prefix}")
     
     # Log all mounted routes after attachment (always log)
     logger.info("=== Registered routes after A2A attachment ===")

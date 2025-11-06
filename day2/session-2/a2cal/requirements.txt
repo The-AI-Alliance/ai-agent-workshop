@@ -11,3 +11,5 @@ qrcode
 Pillow
 openai
 google.generativeai
+google.adk
+litellm

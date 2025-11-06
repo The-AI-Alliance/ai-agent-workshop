@@ -58,7 +58,7 @@ class CalendarAdminAgent(BaseAgent):
         generate_content_config = genai_types.GenerateContentConfig(
             temperature=0.0
         )
-        LITELLM_MODEL = os.getenv('LITELLM_MODEL', 'google/gemini-2.0-flash')
+        LITELLM_MODEL = os.getenv('LITELLM_MODEL', 'gemini/gemini-2.0-flash')
         self.agent = Agent(
             name=self.agent_name,
             instruction=self.instructions,

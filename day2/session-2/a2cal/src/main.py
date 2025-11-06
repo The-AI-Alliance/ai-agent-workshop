@@ -177,7 +177,7 @@ def main() -> None:
     # Note: host/port are ignored when mounting - they're only used for standalone mode
     print("🚀 Initializing MCP server...")
     mcp_app = create_mcp_app()  # Uses shared calendar service
-    attach_mcp_server(mcp_app, prefix="/")
+    attach_mcp_server(mcp_app, prefix="/mcp")
     
     # Create and attach A2A agent servers
     # Create both Calendar Admin and Calendar Booking agents
