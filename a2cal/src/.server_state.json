@@ -1,10 +1,10 @@
 {
   "mcp_server_started": true,
-  "mcp_server_url": "https://04e0fd924857.ngrok-free.app/mcp",
-  "base_server_url": "https://04e0fd924857.ngrok-free.app",
+  "mcp_server_url": "https://8e52d1b23fe6.ngrok-free.app/mcp",
+  "base_server_url": "https://8e52d1b23fe6.ngrok-free.app",
   "a2a_server_started": true,
-  "a2a_server_url": "https://04e0fd924857.ngrok-free.app/agent",
-  "calendar_admin_agent_did": "did:peer:2.Vz9sikTydi1cFQynTdqdDmt3JYpXypiCboDpE1rfsJgabH.SeyJ0IjoiQTJBIiwicyI6Imh0dHBzOi8vMDRlMGZkOTI0ODU3Lm5ncm9rLWZyZWUuYXBwIn0.SeyJ0IjoiTUNQIiwicyI6Imh0dHBzOi8vMDRlMGZkOTI0ODU3Lm5ncm9rLWZyZWUuYXBwL21jcC9jYWxlbmRhciJ9",
+  "a2a_server_url": "https://8e52d1b23fe6.ngrok-free.app/agent",
+  "calendar_admin_agent_did": "did:peer:2.Vz9sikTydi1cFQynTdqdDmt3JYpXypiCboDpE1rfsJgabH.SeyJ0IjoiQTJBIiwicyI6Imh0dHBzOi8vOGU1MmQxYjIzZmU2Lm5ncm9rLWZyZWUuYXBwIn0.SeyJ0IjoiTUNQIiwicyI6Imh0dHBzOi8vOGU1MmQxYjIzZmU2Lm5ncm9rLWZyZWUuYXBwL21jcC9jYWxlbmRhciJ9",
   "agents": {
     "did:peer:2.SeyJ0IjoiQTJBIiwicyI6Imh0dHBzOi8vOThjMGZiYmU1MjZhLm5ncm9rLWZyZWUuYXBwIn0.SeyJ0IjoiTUNQIiwicyI6Imh0dHBzOi8vOThjMGZiYmU1MjZhLm5ncm9rLWZyZWUuYXBwL21jcC9jYWxlbmRhciJ9": {
       "name": "Calendar Manager Agent",
@@ -133,6 +133,10 @@
     "did:peer:2.Vz9sikTydi1cFQynTdqdDmt3JYpXypiCboDpE1rfsJgabH.SeyJ0IjoiQTJBIiwicyI6Imh0dHBzOi8vMDRlMGZkOTI0ODU3Lm5ncm9rLWZyZWUuYXBwIn0.SeyJ0IjoiTUNQIiwicyI6Imh0dHBzOi8vMDRlMGZkOTI0ODU3Lm5ncm9rLWZyZWUuYXBwL21jcC9jYWxlbmRhciJ9": {
       "name": "Calendar Booking Agent",
       "agent_card_path": "/Users/andor/workspace/github.com/ai-alliance/ai-agent-workshop/day2/session-2/a2cal/src/agent_cards/calendar_booking.json"
+    },
+    "did:peer:2.Vz9sikTydi1cFQynTdqdDmt3JYpXypiCboDpE1rfsJgabH.SeyJ0IjoiQTJBIiwicyI6Imh0dHBzOi8vOGU1MmQxYjIzZmU2Lm5ncm9rLWZyZWUuYXBwIn0.SeyJ0IjoiTUNQIiwicyI6Imh0dHBzOi8vOGU1MmQxYjIzZmU2Lm5ncm9rLWZyZWUuYXBwL21jcC9jYWxlbmRhciJ9": {
+      "name": "Calendar Booking Agent",
+      "agent_card_path": "/Users/andor/workspace/github.com/ai-alliance/ai-agent-workshop/a2cal/src/agent_cards/calendar_booking.json"
     }
   }
 }
