@@ -772,13 +772,130 @@ def use_agent_to_book_page():
         st.info(f"💬 MCP Endpoint: `{mcp_endpoint}`")
     st.markdown("---")
     
-    # Create tabs for A2A and MCP
-    tab_a2a, tab_mcp = st.tabs(["📡 Book Via A2A", "💬 Book Via MCP"])
+    # Automatic Booking Section
+    if a2a_endpoint:
+        st.subheader("🤖 Automated Booking")
+        st.markdown("Fill in your meeting preferences and let the AI agent handle the booking automatically.")
+        
+        with st.expander("📅 Meeting Preferences", expanded=False):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                meeting_date = st.text_input(
+                    "Date",
+                    placeholder="e.g., tomorrow, 2025-11-07",
+                    help="When would you like to meet?",
+                    key="auto_booking_date"
+                )
+                meeting_time = st.text_input(
+                    "Time",
+                    placeholder="e.g., 2pm, 14:00",
+                    help="What time works best?",
+                    key="auto_booking_time"
+                )
+                meeting_duration = st.number_input(
+                    "Duration (minutes)",
+                    min_value=15,
+                    max_value=480,
+                    value=60,
+                    step=15,
+                    key="auto_booking_duration"
+                )
+            
+            with col2:
+                meeting_title = st.text_input(
+                    "Title",
+                    placeholder="e.g., Project Review",
+                    key="auto_booking_title"
+                )
+                meeting_description = st.text_area(
+                    "Description",
+                    placeholder="Optional meeting description",
+                    key="auto_booking_description",
+                    height=100
+                )
+        
+        # Book Meeting button
+        col1, col2, col3 = st.columns([2, 1, 2])
+        with col2:
+            if st.button("🤖 Book Meeting Automatically", type="primary", use_container_width=True, key="auto_book_button"):
+                # Initialize booking automation
+                from a2a_client.booking_automation import BookingAutomation, MeetingPreferences
+                
+                # Create preferences
+                preferences = MeetingPreferences(
+                    date=meeting_date if meeting_date else None,
+                    time=meeting_time if meeting_time else None,
+                    duration=meeting_duration if meeting_duration else None,
+                    title=meeting_title if meeting_title else None,
+                    description=meeting_description if meeting_description else None,
+                    partner_agent_id=agent_did
+                )
+                
+                # Create status container
+                status_container = st.container()
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                # Progress callback
+                async def update_progress(turn: int, status: str, message: str):
+                    progress = turn / 5  # Max 5 turns
+                    progress_bar.progress(min(progress, 1.0))
+                    status_text.markdown(f"**Turn {turn}/5:** {message}")
+                
+                # Run booking automation
+                automation = BookingAutomation(max_turns=5)
+                
+                try:
+                    import asyncio
+                    import nest_asyncio
+                    nest_asyncio.apply()
+                    
+                    loop = asyncio.get_event_loop()
+                    result = loop.run_until_complete(
+                        automation.book_meeting(
+                            target_agent_endpoint=a2a_endpoint,
+                            preferences=preferences,
+                            progress_callback=update_progress
+                        )
+                    )
+                    
+                    # Display result
+                    progress_bar.progress(1.0)
+                    
+                    if result['success']:
+                        st.success(f"✅ {result['message']}")
+                        
+                        if result.get('booking_details'):
+                            st.json(result['booking_details'])
+                    else:
+                        st.error(f"❌ {result['message']}")
+                    
+                    # Show conversation summary
+                    with st.expander("📜 Conversation History", expanded=False):
+                        st.markdown(automation.get_conversation_summary())
+                        
+                        for turn in result.get('conversation_history', []):
+                            st.markdown(f"### Turn {turn.turn_number}")
+                            st.markdown(f"**Sent:** {turn.message_sent}")
+                            st.markdown(f"**Received:** {turn.response_received}")
+                            st.markdown("---")
+                
+                except Exception as e:
+                    st.error(f"❌ Error during automated booking: {str(e)}")
+                    import traceback
+                    with st.expander("🐛 Error Details"):
+                        st.code(traceback.format_exc())
+        
+        st.markdown("---")
+    
+    # Create tabs for Manual A2A and MCP
+    tab_a2a, tab_mcp = st.tabs(["📡 Manual A2A Chat", "💬 MCP Chat"])
     
     # A2A Tab
     with tab_a2a:
-        st.subheader("📡 Book Via A2A (Agent-to-Agent)")
-        st.markdown("Use A2A protocol to chat with the agent and book a meeting through conversation.")
+        st.subheader("📡 Manual A2A Chat")
+        st.markdown("Manually chat with the agent using A2A protocol to book a meeting through conversation.")
         
         # Display A2A endpoint if available
         if a2a_endpoint:
@@ -999,8 +1116,8 @@ Error type: {error_type}
     
     # MCP Tab
     with tab_mcp:
-        st.subheader("💬 Book Via MCP (Model Context Protocol)")
-        st.markdown("Use MCP to chat with the agent and book a meeting through conversation.")
+        st.subheader("💬 MCP Chat")
+        st.markdown("Manually chat with the agent using Model Context Protocol (MCP) to book a meeting through conversation.")
         
         # Display MCP endpoint if available
         if mcp_endpoint:
