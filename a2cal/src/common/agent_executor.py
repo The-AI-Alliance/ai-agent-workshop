@@ -48,6 +48,9 @@ class GenericAgentExecutor(AgentExecutor):
 
         updater = TaskUpdater(event_queue, task.id, task.context_id)
 
+        logger.info(f'---------------Task: {task}')
+
+
         # Update task status to working at the start
         try:
             await updater.update_status(
@@ -78,8 +81,10 @@ class GenericAgentExecutor(AgentExecutor):
 
                 is_task_complete = item['is_task_complete']
                 require_user_input = item['require_user_input']
-
+                logger.info(f'---------------Is task complete: {is_task_complete}')
+                logger.info(f'---------------Require user input: {require_user_input}')
                 if is_task_complete:
+                    logger.info(f'---------------Task complete: {item}')
                     if item['response_type'] == 'data':
                         part = DataPart(data=item['content'])
                     else:

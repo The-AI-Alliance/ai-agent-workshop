@@ -112,7 +112,9 @@ def create_a2a_app(agent_card_path: str, host: str = "localhost", a2a_port: int 
                 logger.error(f'❌ Could not get agent DID for {agent_card.name}: {e}')
                 print(f'❌ Could not get agent DID for {agent_card.name}: {e}')
                 logger.error(traceback.format_exc())
-        
+
+        logger.info(f'---------------Agent card: {agent_card}')
+        logger.info(f'---------------Agent: {agent}')
         request_handler = DefaultRequestHandler(
             agent_executor=GenericAgentExecutor(agent=agent),
             task_store=InMemoryTaskStore(),

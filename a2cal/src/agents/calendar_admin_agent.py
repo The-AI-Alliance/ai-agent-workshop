@@ -79,7 +79,7 @@ class CalendarAdminAgent(BaseAgent):
     async def invoke(self, query, session_id) -> dict:
         logger.info(f'Running {self.agent_name} for session {session_id}')
 
-        raise NotImplementedError('Please use the streraming function')
+        raise NotImplementedError('Please use the streaming function')
 
     async def stream(
         self, query, context_id, task_id
@@ -177,8 +177,14 @@ class CalendarAdminAgent(BaseAgent):
             try:
                 data = json.loads(data)
                 return_type = 'data'
-            except Exception as json_e:
-                logger.error(f'Json conversion error {json_e}')
+                logger.info(f'✓ Successfully parsed JSON response')
+            except json.JSONDecodeError as json_e:
+                # Plain text responses are expected and OK
+                logger.info(f'Response is plain text (not JSON), which is fine: {str(data)[:100]}...')
+                return_type = 'text'
+            except Exception as e:
+                # Unexpected error
+                logger.error(f'Unexpected error during JSON parsing: {e}')
                 return_type = 'text'
             return {
                 'response_type': return_type,

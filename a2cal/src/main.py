@@ -11,6 +11,7 @@ from pyngrok import ngrok
 from agents.server import create_a2a_app
 from common.server import get_app, attach_a2a_server, attach_mcp_server
 from common.server_state import set_a2a_server_status, set_base_server_url, set_mcp_server_status
+from common.utils import config_logging
 from mmcp.server import create_mcp_app, serve
 
 
@@ -132,6 +133,9 @@ def run_mcp_standalone(host: str = "localhost", port: int = 10100, transport: st
 
 def main() -> None:
     """Main entry point."""
+    # Configure logging first (suppress LiteLLM debug logs)
+    config_logging()
+    
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="A2Cal Calendar Agent Server")
     parser.add_argument(

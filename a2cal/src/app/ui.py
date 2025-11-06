@@ -25,6 +25,54 @@ from common.agentfacts import load_agentfacts, save_agentfacts
 from common.base_agent import Agent
 from common.server_state import get_server_state
 
+# Import DID resolution
+try:
+    from common.did_peer_2 import resolve
+    DID_RESOLVE_AVAILABLE = True
+except ImportError:
+    DID_RESOLVE_AVAILABLE = False
+    resolve = None
+
+# Import MCP client
+try:
+    from mmcp.client import init_session_from_url, send_message
+    MCP_CLIENT_AVAILABLE = True
+except ImportError:
+    MCP_CLIENT_AVAILABLE = False
+    init_session_from_url = None
+    send_message = None
+
+# Import A2A client
+try:
+    import sys
+    import logging
+    _ui_logger = logging.getLogger(__name__)
+    _ui_logger.debug(f"Attempting to import A2A client from Python: {sys.executable}")
+    _ui_logger.debug(f"Python path (first 3): {sys.path[:3]}")
+    
+    from a2a_client.client import send_message_to_a2a_agent, A2A_SDK_AVAILABLE
+    A2A_CLIENT_AVAILABLE = A2A_SDK_AVAILABLE
+    
+    if A2A_CLIENT_AVAILABLE:
+        _ui_logger.info("✅ A2A client imported successfully and SDK is available")
+    else:
+        _ui_logger.warning("⚠️ A2A client module imported but SDK is not available")
+        from a2a_client.client import _import_error
+        _ui_logger.warning(f"   Import error: {_import_error}")
+except ImportError as e:
+    A2A_CLIENT_AVAILABLE = False
+    send_message_to_a2a_agent = None
+    _ui_logger.error(f"❌ Failed to import A2A client module: {e}")
+    _ui_logger.error(f"   Python executable: {sys.executable}")
+    import traceback
+    _ui_logger.debug(f"   Full traceback:\n{traceback.format_exc()}")
+except Exception as e:
+    A2A_CLIENT_AVAILABLE = False
+    send_message_to_a2a_agent = None
+    _ui_logger.error(f"❌ Unexpected error importing A2A client: {e}")
+    import traceback
+    _ui_logger.debug(f"   Full traceback:\n{traceback.format_exc()}")
+
 # Use web-based QR code generation (no dependencies needed)
 QRCODE_AVAILABLE = True
 
@@ -645,12 +693,17 @@ def use_agent_to_book_page():
     
     # DID Input Section
     st.subheader("🔐 Agent DID")
-    agent_did = st.text_input(
-        "Agent Decentralized Identifier (DID)",
-        placeholder="did:peer:2...",
-        help="Enter the DID of the agent you want to connect to",
-        key="agent_did_input"
-    )
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        agent_did = st.text_input(
+            "Agent Decentralized Identifier (DID)",
+            placeholder="did:peer:2...",
+            help="Enter the DID of the agent you want to connect to",
+            key="agent_did_input",
+            label_visibility="collapsed"
+        )
+    with col2:
+        connect_button = st.button("🔗 Connect", key="connect_did", type="primary", use_container_width=True)
     
     if not agent_did:
         st.info("💡 Enter an agent DID to begin booking")
@@ -663,7 +716,60 @@ def use_agent_to_book_page():
         st.warning("⚠️ DID should start with 'did:'")
         return
     
+    # Resolve DID and extract service endpoints when Connect button is clicked
+    a2a_endpoint = None
+    mcp_endpoint = None
+    
+    # Resolve DID when Connect button is clicked
+    if connect_button:
+        if DID_RESOLVE_AVAILABLE and resolve:
+            try:
+                with st.spinner("🔍 Resolving DID and extracting service endpoints..."):
+                    did_doc = resolve(agent_did)
+                    st.session_state.resolved_did = agent_did
+                    
+                    # Extract service endpoints from DID document
+                    services = did_doc.get("service", [])
+                    for service in services:
+                        service_type = service.get("type", "")
+                        service_endpoint = service.get("serviceEndpoint", "")
+                        
+                        if service_type == "A2A":
+                            # Strip /agent/ or /agent from the endpoint if present
+                            a2a_endpoint = service_endpoint.rstrip('/')
+                            # Remove trailing /agent or /agent/
+                            if a2a_endpoint.endswith('/agent'):
+                                a2a_endpoint = a2a_endpoint[:-6]  # Remove '/agent'
+                            # Ensure we have a clean base URL
+                            a2a_endpoint = a2a_endpoint.rstrip('/')
+                            st.session_state.a2a_endpoint = a2a_endpoint
+                        elif service_type == "MCP":
+                            mcp_endpoint = service_endpoint
+                            st.session_state.mcp_endpoint = mcp_endpoint
+                    
+                    if a2a_endpoint or mcp_endpoint:
+                        st.success("✅ DID resolved successfully!")
+                    else:
+                        st.warning("⚠️ DID resolved but no A2A or MCP service endpoints found")
+            except Exception as e:
+                st.error(f"❌ Error resolving DID: {e}")
+                st.session_state.resolved_did = None
+                st.session_state.a2a_endpoint = None
+                st.session_state.mcp_endpoint = None
+        else:
+            st.error("❌ DID resolution not available. Please install required dependencies.")
+    else:
+        # Use cached endpoints if available and DID matches
+        if 'a2a_endpoint' in st.session_state and st.session_state.get('resolved_did') == agent_did:
+            a2a_endpoint = st.session_state.a2a_endpoint
+        if 'mcp_endpoint' in st.session_state and st.session_state.get('resolved_did') == agent_did:
+            mcp_endpoint = st.session_state.mcp_endpoint
+    
     st.success(f"✅ Agent DID: `{agent_did}`")
+    if a2a_endpoint:
+        st.info(f"📡 A2A Endpoint: `{a2a_endpoint}`")
+    if mcp_endpoint:
+        st.info(f"💬 MCP Endpoint: `{mcp_endpoint}`")
     st.markdown("---")
     
     # Create tabs for A2A and MCP
@@ -672,33 +778,235 @@ def use_agent_to_book_page():
     # A2A Tab
     with tab_a2a:
         st.subheader("📡 Book Via A2A (Agent-to-Agent)")
-        st.markdown("Use A2A protocol to find available time slots and book a meeting.")
+        st.markdown("Use A2A protocol to chat with the agent and book a meeting through conversation.")
+        
+        # Display A2A endpoint if available
+        if a2a_endpoint:
+            st.info(f"**A2A Service Endpoint:** `{a2a_endpoint}`")
+        else:
+            st.warning("⚠️ A2A endpoint not found. Please resolve the DID first.")
         
         st.markdown("---")
         
-        # Find Time Button
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            if st.button("🔍 Find Time", key="a2a_find_time", type="primary", use_container_width=True):
-                st.info("🔍 Finding available time slots...")
-                # TODO: Implement A2A client to find available slots
-                st.success("✅ Available slots found! (Implementation coming soon)")
+        # Initialize chat history in session state
+        if 'a2a_chat_history' not in st.session_state:
+            st.session_state.a2a_chat_history = []
+        
+        # Display chat history
+        st.subheader("💬 Chat")
+        
+        # Chat container
+        chat_container = st.container()
+        
+        with chat_container:
+            # Display chat messages
+            for idx, message in enumerate(st.session_state.a2a_chat_history):
+                if message.get('role') == 'user':
+                    with st.chat_message("user"):
+                        st.write(message.get('content', ''))
+                elif message.get('role') == 'assistant':
+                    with st.chat_message("assistant"):
+                        st.write(message.get('content', ''))
         
         st.markdown("---")
         
-        # Placeholder for A2A results
-        st.info("💡 A2A booking functionality will be implemented here")
-        st.markdown("""
-        **Planned features:**
-        - Find available time slots from the agent
-        - Display available slots in a calendar
-        - Book a meeting slot directly
-        """)
+        # Chat input - only enable if A2A endpoint is available
+        chat_enabled_a2a = a2a_endpoint is not None and A2A_CLIENT_AVAILABLE
+        
+        # Debug info expander
+        with st.expander("🔧 Debug Info", expanded=False):
+            import sys
+            import json
+            import os
+            
+            st.subheader("System Info")
+            st.code(f"""
+Python executable: {sys.executable}
+A2A_CLIENT_AVAILABLE: {A2A_CLIENT_AVAILABLE}
+A2A endpoint: {a2a_endpoint}
+Chat enabled: {chat_enabled_a2a}
+            """.strip())
+            
+            if not A2A_CLIENT_AVAILABLE:
+                try:
+                    from a2a_client.client import _import_error, A2A_SDK_AVAILABLE
+                    st.warning(f"A2A SDK Available: {A2A_SDK_AVAILABLE}")
+                    if _import_error:
+                        st.error(f"Import error: {_import_error}")
+                        st.code(str(_import_error))
+                except:
+                    st.error("Could not retrieve import error details")
+            
+            # Show A2A Client Debug Info from JSON file
+            st.markdown("---")
+            st.subheader("A2A Client Debug Info")
+            debug_file_path = "/tmp/a2a_client_debug.json"
+            
+            if os.path.exists(debug_file_path):
+                try:
+                    with open(debug_file_path, 'r') as f:
+                        debug_data = json.load(f)
+                    
+                    st.success(f"✅ Last request to: `{debug_data.get('endpoint', 'N/A')}`")
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Chunks Received", debug_data.get('chunks_received', 0))
+                    with col2:
+                        st.metric("Text Extracted", "✅ Yes" if debug_data.get('text_extracted') else "❌ No")
+                    with col3:
+                        st.metric("Text Length", debug_data.get('text_length', 0))
+                    
+                    st.markdown("**Message sent:**")
+                    st.code(debug_data.get('message', 'N/A'))
+                    
+                    st.markdown("**Streaming:**")
+                    st.code(f"Supports streaming: {debug_data.get('supports_streaming', False)}")
+                    
+                    # Show chunk summary
+                    st.markdown("**Chunks received:**")
+                    raw_chunks = debug_data.get('raw_chunks', [])
+                    for i, chunk_info in enumerate(raw_chunks):
+                        with st.expander(f"Chunk {i+1}: {chunk_info.get('type', 'Unknown')}", expanded=False):
+                            st.json(chunk_info.get('data', {}))
+                    
+                    # Button to view full debug file
+                    if st.button("📄 View Full Debug JSON"):
+                        st.json(debug_data)
+                        
+                except Exception as e:
+                    st.error(f"Failed to read debug file: {e}")
+            else:
+                st.info("No debug info available yet. Send a message to generate debug data.")
+        
+        if not chat_enabled_a2a:
+            if not a2a_endpoint:
+                st.warning("⚠️ A2A endpoint not available. Please resolve the DID first.")
+            elif not A2A_CLIENT_AVAILABLE:
+                st.warning("⚠️ A2A client not available. Please install required dependencies.")
+                st.info("💡 Check the Debug Info expander above for details about the import error.")
+        
+        user_input_a2a = st.chat_input(
+            "Type your message to the agent..." if chat_enabled_a2a else "Connect to agent first...",
+            disabled=not chat_enabled_a2a,
+            key="a2a_chat_input"
+        )
+        
+        if user_input_a2a and chat_enabled_a2a:
+            # Add user message to chat history
+            st.session_state.a2a_chat_history.append({
+                'role': 'user',
+                'content': user_input_a2a
+            })
+            
+            # Display user message immediately
+            with st.chat_message("user"):
+                st.write(user_input_a2a)
+            
+            # Send message via A2A client
+            with st.chat_message("assistant"):
+                with st.spinner("Connecting to agent..."):
+                    try:
+                        import asyncio
+                        import nest_asyncio
+                        
+                        # Allow nested event loops (needed for Streamlit)
+                        nest_asyncio.apply()
+                        
+                        # Run async A2A client call
+                        async def get_response():
+                            return await send_message_to_a2a_agent(
+                                endpoint_url=a2a_endpoint,
+                                message_text=user_input_a2a
+                            )
+                        
+                        # Run the async function
+                        loop = asyncio.get_event_loop()
+                        response = loop.run_until_complete(get_response())
+                        st.write(response)
+                        
+                        # Add assistant response to chat history
+                        st.session_state.a2a_chat_history.append({
+                            'role': 'assistant',
+                            'content': response
+                        })
+                    except ExceptionGroup as eg:
+                        # Handle ExceptionGroup (TaskGroup errors)
+                        error_details = []
+                        for exc in eg.exceptions:
+                            error_details.append(str(exc))
+                        error_msg = f"Connection error: {'; '.join(error_details)}"
+                        st.error(error_msg)
+                        st.exception(eg)  # Show full traceback in expander
+                        st.session_state.a2a_chat_history.append({
+                            'role': 'assistant',
+                            'content': error_msg
+                        })
+                    except Exception as e:
+                        # Extract more details from the error
+                        error_msg = f"Error communicating with agent: {str(e)}"
+                        error_type = type(e).__name__
+                        
+                        # Provide more helpful error messages
+                        if "ImportError" in error_type or "a2a-sdk" in str(e).lower():
+                            # Show detailed debug info for import errors
+                            import sys
+                            debug_info = f"""
+**A2A SDK Import Error**
+
+Python executable: `{sys.executable}`
+Error: {str(e)}
+
+**Troubleshooting:**
+1. Make sure you're using the correct Python environment
+2. Install a2a-sdk: `pip install 'a2a-sdk[http-server]'`
+3. Restart Streamlit after installing
+4. Check that Streamlit is using the same Python as your terminal
+                            """
+                            error_msg = debug_info
+                        elif "ConnectError" in error_type or "connection" in str(e).lower():
+                            error_msg = f"❌ Cannot connect to A2A server at `{a2a_endpoint}`. Please check:\n- The server is running\n- The URL is correct\n- Network connectivity"
+                        elif "TaskGroup" in str(e):
+                            error_msg = f"❌ Connection failed: {str(e)}\n\nThis usually means the A2A server is not accessible. Please verify the endpoint URL."
+                        
+                        st.error(error_msg)
+                        with st.expander("🔍 Error Details", expanded=True):
+                            st.exception(e)
+                            # Show additional debug info
+                            import sys
+                            st.code(f"""
+Python executable: {sys.executable}
+A2A_CLIENT_AVAILABLE: {A2A_CLIENT_AVAILABLE}
+Error type: {error_type}
+                            """.strip())
+                        st.session_state.a2a_chat_history.append({
+                            'role': 'assistant',
+                            'content': error_msg
+                        })
+            
+            st.rerun()
+        
+        # Clear chat button
+        if st.button("🗑️ Clear Chat", key="clear_a2a_chat"):
+            st.session_state.a2a_chat_history = []
+            st.rerun()
+        
+        st.markdown("---")
+        if chat_enabled_a2a:
+            st.info("💡 You can ask the agent about available time slots, pending requests, calendar events, or request bookings.")
+        else:
+            st.info("💡 Connect to an agent by resolving their DID to start chatting.")
     
     # MCP Tab
     with tab_mcp:
         st.subheader("💬 Book Via MCP (Model Context Protocol)")
         st.markdown("Use MCP to chat with the agent and book a meeting through conversation.")
+        
+        # Display MCP endpoint if available
+        if mcp_endpoint:
+            st.info(f"**MCP Service Endpoint:** `{mcp_endpoint}`")
+        else:
+            st.warning("⚠️ MCP endpoint not found. Please resolve the DID first.")
         
         st.markdown("---")
         
@@ -724,10 +1032,21 @@ def use_agent_to_book_page():
         
         st.markdown("---")
         
-        # Chat input
-        user_input = st.chat_input("Type your message to the agent...")
+        # Chat input - only enable if MCP endpoint is available
+        chat_enabled = mcp_endpoint is not None and MCP_CLIENT_AVAILABLE
         
-        if user_input:
+        if not chat_enabled:
+            if not mcp_endpoint:
+                st.warning("⚠️ MCP endpoint not available. Please resolve the DID first.")
+            elif not MCP_CLIENT_AVAILABLE:
+                st.warning("⚠️ MCP client not available. Please install required dependencies.")
+        
+        user_input = st.chat_input(
+            "Type your message to the agent..." if chat_enabled else "Connect to agent first...",
+            disabled=not chat_enabled
+        )
+        
+        if user_input and chat_enabled:
             # Add user message to chat history
             st.session_state.mcp_chat_history.append({
                 'role': 'user',
@@ -738,18 +1057,57 @@ def use_agent_to_book_page():
             with st.chat_message("user"):
                 st.write(user_input)
             
-            # Simulate agent response (placeholder)
+            # Send message via MCP client
             with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    # TODO: Implement MCP client to send message and get response
-                    response = f"Agent received: {user_input}. (MCP client implementation coming soon)"
-                    st.write(response)
-                    
-                    # Add assistant response to chat history
-                    st.session_state.mcp_chat_history.append({
-                        'role': 'assistant',
-                        'content': response
-                    })
+                with st.spinner("Connecting to agent..."):
+                    try:
+                        import asyncio
+                        
+                        # Run async MCP client call
+                        async def get_response():
+                            async with init_session_from_url(mcp_endpoint) as session:
+                                return await send_message(session, user_input)
+                        
+                        # Run the async function
+                        # Streamlit runs in a sync context, so asyncio.run() should work
+                        response = asyncio.run(get_response())
+                        st.write(response)
+                        
+                        # Add assistant response to chat history
+                        st.session_state.mcp_chat_history.append({
+                            'role': 'assistant',
+                            'content': response
+                        })
+                    except ExceptionGroup as eg:
+                        # Handle ExceptionGroup (TaskGroup errors)
+                        error_details = []
+                        for exc in eg.exceptions:
+                            error_details.append(str(exc))
+                        error_msg = f"Connection error: {'; '.join(error_details)}"
+                        st.error(error_msg)
+                        st.exception(eg)  # Show full traceback in expander
+                        st.session_state.mcp_chat_history.append({
+                            'role': 'assistant',
+                            'content': error_msg
+                        })
+                    except Exception as e:
+                        # Extract more details from the error
+                        error_msg = f"Error communicating with agent: {str(e)}"
+                        error_type = type(e).__name__
+                        
+                        # Provide more helpful error messages
+                        if "ConnectError" in error_type or "connection" in str(e).lower():
+                            error_msg = f"❌ Cannot connect to MCP server at `{mcp_endpoint}`. Please check:\n- The server is running\n- The URL is correct\n- Network connectivity"
+                        elif "TaskGroup" in str(e):
+                            error_msg = f"❌ Connection failed: {str(e)}\n\nThis usually means the MCP server is not accessible. Please verify the endpoint URL."
+                        
+                        st.error(error_msg)
+                        with st.expander("🔍 Error Details", expanded=False):
+                            st.exception(e)
+                        st.session_state.mcp_chat_history.append({
+                            'role': 'assistant',
+                            'content': error_msg
+                        })
             
             st.rerun()
         
@@ -759,13 +1117,10 @@ def use_agent_to_book_page():
             st.rerun()
         
         st.markdown("---")
-        st.info("💡 MCP chat functionality will be implemented here")
-        st.markdown("""
-        **Planned features:**
-        - Real-time chat interface with MCP agent
-        - Natural language booking requests
-        - Context-aware conversation
-        """)
+        if chat_enabled:
+            st.info("💡 You can ask the agent about available time slots, pending requests, calendar events, or request bookings.")
+        else:
+            st.info("💡 Connect to an agent by resolving their DID to start chatting.")
 
 
 def proposed_events_logs_page():

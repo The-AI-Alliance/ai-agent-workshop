@@ -69,8 +69,10 @@ class Agent:
         self._keys: List[KeySpec] = []
         
         # Setup ngrok tunnels if available
-        self.a2a_url = self._get_endpoint_url(a2a_port)
-        self.mcp_url = self._get_endpoint_url(mcp_port, path="/mcp/calendar")
+        self.a2a_url = self._get_endpoint_url(a2a_port, path="/agent")
+        self.mcp_url = self._get_endpoint_url(mcp_port, path="/mcp")
+        # AgentFacts endpoint (always on port 8000, same as main server)
+        self.agentfacts_url = self._get_endpoint_url(8000, path="/.well-known/agentfacts.json")
         
         # Create or load DID Peer
         logger.info(f"🔐 Initializing DID for agent: {self.agent_name}")
@@ -97,9 +99,11 @@ class Agent:
         logger.info(f"✅ Agent '{self.name}' initialized with DID: {self.did}")
         logger.info(f"   A2A endpoint: {self.a2a_url}")
         logger.info(f"   MCP endpoint: {self.mcp_url}")
+        logger.info(f"   AgentFacts endpoint: {self.agentfacts_url}")
         print(f"✅ Agent '{self.name}' initialized with DID: {self.did}")
         print(f"   A2A endpoint: {self.a2a_url}")
         print(f"   MCP endpoint: {self.mcp_url}")
+        print(f"   AgentFacts endpoint: {self.agentfacts_url}")
     
     def _get_endpoint_url(self, port: int, path: str = "") -> str:
         """
@@ -311,7 +315,7 @@ class Agent:
             return
         
         # Only add services to DID if we have ngrok URLs
-        if not self._is_ngrok_url(self.a2a_url) or not self._is_ngrok_url(self.mcp_url):
+        if not self._is_ngrok_url(self.a2a_url) or not self._is_ngrok_url(self.mcp_url) or not self._is_ngrok_url(self.agentfacts_url):
             print(f"⚠️  Skipping service endpoint setup - ngrok URLs not available. Using localhost endpoints.")
             return
         
@@ -400,14 +404,21 @@ class Agent:
                 "serviceEndpoint": self.mcp_url
             }
             
-            # Create services list with ONLY the two services we want (A2A and MCP)
-            # Remove any other services and ensure we only have these 2
-            services = [a2a_service, mcp_service]
+            # AgentFacts service endpoint
+            agentfacts_service = {
+                "type": "AgentFacts",
+                "serviceEndpoint": self.agentfacts_url
+            }
+            
+            # Create services list with the three services we want (A2A, MCP, and AgentFacts)
+            # Remove any other services and ensure we only have these 3
+            services = [a2a_service, mcp_service, agentfacts_service]
             
             # Check if services have changed by comparing with current document
             current_services = current_doc.get("service", [])
             current_a2a = next((s for s in current_services if s.get("type") == "A2A"), None)
             current_mcp = next((s for s in current_services if s.get("type") == "MCP"), None)
+            current_agentfacts = next((s for s in current_services if s.get("type") == "AgentFacts"), None)
             
             # Only regenerate DID if services have changed
             services_changed = (
@@ -415,11 +426,13 @@ class Agent:
                 current_a2a.get("serviceEndpoint") != self.a2a_url or
                 not current_mcp or 
                 current_mcp.get("serviceEndpoint") != self.mcp_url or
-                len([s for s in current_services if s.get("type") in ["A2A", "MCP"]]) != 2
+                not current_agentfacts or
+                current_agentfacts.get("serviceEndpoint") != self.agentfacts_url or
+                len([s for s in current_services if s.get("type") in ["A2A", "MCP", "AgentFacts"]]) != 3
             )
             
             if services_changed:
-                # Generate new DID with exactly 2 services (A2A and MCP)
+                # Generate new DID with exactly 3 services (A2A, MCP, and AgentFacts)
                 # Ensure keys are valid
                 if not self._keys:
                     logger.error("❌ Cannot regenerate DID: no keys available")
@@ -472,11 +485,16 @@ class Agent:
         """Get the MCP service endpoint URL."""
         return self.mcp_url
     
+    def get_agentfacts_endpoint(self) -> str:
+        """Get the AgentFacts service endpoint URL."""
+        return self.agentfacts_url
+    
     def get_service_endpoints(self) -> Dict[str, str]:
         """Get all service endpoints."""
         return {
             "A2A": self.get_a2a_endpoint(),
-            "MCP": self.get_mcp_endpoint()
+            "MCP": self.get_mcp_endpoint(),
+            "AgentFacts": self.get_agentfacts_endpoint()
         }
 
 

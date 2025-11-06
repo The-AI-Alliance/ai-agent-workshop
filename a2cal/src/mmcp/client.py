@@ -13,6 +13,14 @@ from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
 from mcp.types import CallToolResult, ReadResourceResult
 
+# Try to import Streamable HTTP client
+try:
+    from mcp.client.streamable_http import streamablehttp_client
+    STREAMABLE_HTTP_AVAILABLE = True
+except ImportError:
+    STREAMABLE_HTTP_AVAILABLE = False
+    streamablehttp_client = None
+
 
 logger = get_logger(__name__)
 
@@ -30,21 +38,20 @@ async def init_session(host, port, transport):
     """Initializes and manages an MCP ClientSession based on the specified transport.
 
     This asynchronous context manager establishes a connection to an MCP server
-    using either Server-Sent Events (SSE) or Standard I/O (STDIO) transport.
+    using either Server-Sent Events (SSE), Streamable HTTP, or Standard I/O (STDIO) transport.
     It handles the setup and teardown of the connection and yields an active
     `ClientSession` object ready for communication.
 
     Args:
-        host: The hostname or IP address of the MCP server (used for SSE).
-        port: The port number of the MCP server (used for SSE).
-        transport: The communication transport to use ('sse' or 'stdio').
+        host: The hostname or IP address of the MCP server (used for SSE/Streamable HTTP).
+        port: The port number of the MCP server (used for SSE/Streamable HTTP).
+        transport: The communication transport to use ('sse', 'streamable-http', or 'stdio').
 
     Yields:
         ClientSession: An initialized and ready-to-use MCP client session.
 
     Raises:
-        ValueError: If an unsupported transport type is provided (implicitly,
-                    as it won't match 'sse' or 'stdio').
+        ValueError: If an unsupported transport type is provided.
         Exception: Other potential exceptions during client initialization or
                    session setup.
     """
@@ -57,6 +64,18 @@ async def init_session(host, port, transport):
                 logger.debug('SSE ClientSession created, initializing...')
                 await session.initialize()
                 logger.info('SSE ClientSession initialized successfully.')
+                yield session
+    elif transport == 'streamable-http' or transport == 'streamable_http':
+        if not STREAMABLE_HTTP_AVAILABLE:
+            raise ValueError('Streamable HTTP client not available. Please install required dependencies.')
+        url = f'http://{host}:{port}/mcp'
+        async with streamablehttp_client(url=url) as (read_stream, write_stream, _get_session_id):
+            async with ClientSession(
+                read_stream=read_stream, write_stream=write_stream
+            ) as session:
+                logger.debug('Streamable HTTP ClientSession created, initializing...')
+                await session.initialize()
+                logger.info('Streamable HTTP ClientSession initialized successfully.')
                 yield session
     elif transport == 'stdio':
         gemini_token = os.getenv('GEMINI_API_TOKEN') or os.getenv('GOOGLE_API_KEY')
@@ -80,8 +99,70 @@ async def init_session(host, port, transport):
     else:
         logger.error(f'Unsupported transport type: {transport}')
         raise ValueError(
-            f"Unsupported transport type: {transport}. Must be 'sse' or 'stdio'."
+            f"Unsupported transport type: {transport}. Must be 'sse', 'streamable-http', or 'stdio'."
         )
+
+
+@asynccontextmanager
+async def init_session_from_url(url: str):
+    """Initializes and manages an MCP ClientSession from a full URL (for Streamable HTTP).
+
+    This is useful when you have a complete URL from a DID service endpoint.
+    Automatically detects if the URL is Streamable HTTP or SSE based on the path.
+
+    Args:
+        url: The full URL of the MCP server endpoint (e.g., 'https://example.com/mcp' or 'http://localhost:8000/mcp').
+
+    Yields:
+        ClientSession: An initialized and ready-to-use MCP client session.
+
+    Raises:
+        ValueError: If Streamable HTTP client is not available or URL format is invalid.
+        Exception: Other potential exceptions during client initialization.
+    """
+    if not STREAMABLE_HTTP_AVAILABLE:
+        raise ValueError('Streamable HTTP client not available. Please install required dependencies.')
+    
+    logger.info(f'Connecting to MCP server at: {url}')
+    
+    try:
+        # Ensure URL doesn't end with /sse (that would be SSE, not Streamable HTTP)
+        if url.endswith('/sse'):
+            # For SSE, use sse_client
+            logger.debug('Using SSE client for URL ending with /sse')
+            async with sse_client(url) as (read_stream, write_stream):
+                async with ClientSession(
+                    read_stream=read_stream, write_stream=write_stream
+                ) as session:
+                    logger.debug('SSE ClientSession created from URL, initializing...')
+                    await session.initialize()
+                    logger.info('SSE ClientSession initialized successfully.')
+                    yield session
+        else:
+            # For Streamable HTTP, use streamablehttp_client
+            logger.debug('Using Streamable HTTP client')
+            try:
+                async with streamablehttp_client(url=url) as (read_stream, write_stream, _get_session_id):
+                    async with ClientSession(
+                        read_stream=read_stream, write_stream=write_stream
+                    ) as session:
+                        logger.debug('Streamable HTTP ClientSession created from URL, initializing...')
+                        await session.initialize()
+                        logger.info('Streamable HTTP ClientSession initialized successfully.')
+                        yield session
+            except ExceptionGroup as eg:
+                # Extract and log the actual errors from the ExceptionGroup
+                logger.error(f'ExceptionGroup error connecting to {url}:')
+                for exc in eg.exceptions:
+                    logger.error(f'  - {type(exc).__name__}: {exc}')
+                # Re-raise with more context
+                raise ConnectionError(
+                    f"Failed to connect to MCP server at {url}. "
+                    f"Errors: {[str(e) for e in eg.exceptions]}"
+                ) from eg
+    except Exception as e:
+        logger.error(f'Error in init_session_from_url for {url}: {e}', exc_info=True)
+        raise
 
 
 async def find_agent(session: ClientSession, query) -> CallToolResult:
@@ -290,6 +371,67 @@ async def cancel_event(session: ClientSession, event_id: str) -> CallToolResult:
         name='cancelEvent',
         arguments={'event_id': event_id},
     )
+
+
+async def send_message(session: ClientSession, message: str) -> str:
+    """Send a natural language message to the MCP server and get a response.
+    
+    This is a helper function that attempts to interpret the message and call
+    appropriate MCP tools. For now, it's a simple implementation that can be
+    extended to use LLM-based interpretation.
+    
+    Args:
+        session: The active ClientSession.
+        message: The natural language message to send.
+        
+    Returns:
+        A response string from the agent.
+    """
+    # For now, this is a placeholder that will be enhanced
+    # In a full implementation, this would:
+    # 1. Parse the message to determine intent
+    # 2. Call appropriate MCP tools
+    # 3. Format and return the response
+    
+    # Simple keyword-based routing for now
+    message_lower = message.lower()
+    
+    if 'available' in message_lower or 'slot' in message_lower or 'time' in message_lower:
+        # Try to extract dates from message (simplified)
+        # In production, use an LLM or NLP library
+        from datetime import datetime, timedelta
+        start_date = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%dT09:00:00')
+        end_date = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%dT17:00:00')
+        
+        try:
+            result = await request_available_slots(session, start_date, end_date, "30m")
+            if result.content and len(result.content) > 0:
+                return result.content[0].text
+            return "Available slots retrieved. (Response format may vary)"
+        except Exception as e:
+            return f"Error getting available slots: {str(e)}"
+    
+    elif 'pending' in message_lower or 'request' in message_lower:
+        try:
+            result = await get_pending_requests(session)
+            if result.content and len(result.content) > 0:
+                return result.content[0].text
+            return "Pending requests retrieved."
+        except Exception as e:
+            return f"Error getting pending requests: {str(e)}"
+    
+    elif 'events' in message_lower or 'calendar' in message_lower:
+        try:
+            result = await get_calendar_events(session)
+            if result.content and len(result.content) > 0:
+                return result.content[0].text
+            return "Calendar events retrieved."
+        except Exception as e:
+            return f"Error getting calendar events: {str(e)}"
+    
+    else:
+        # Default response - in production, this would use an LLM to interpret
+        return f"I received your message: '{message}'. I can help you with:\n- Finding available time slots\n- Checking pending requests\n- Viewing calendar events\n- Booking meetings\n\nPlease be more specific about what you'd like to do."
 
 
 # Test util

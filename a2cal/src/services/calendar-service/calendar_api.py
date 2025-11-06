@@ -63,11 +63,14 @@ class Event(pydantic.BaseModel):
     
     def to_dict(self) -> Dict:
         """Convert event to dictionary for JSON serialization."""
+        # Handle both enum and string status values
+        status_str = self.status.value if hasattr(self.status, 'value') else str(self.status)
+        
         return {
             "event_id": self.event_id,
             "time": self.time.isoformat(),
             "duration": self.duration,
-            "status": self.status.value,
+            "status": status_str,
             "partner_agent_id": self.partner_agent_id,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat()

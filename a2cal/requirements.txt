@@ -13,3 +13,5 @@ openai
 google.generativeai
 google.adk
 litellm
+a2a-sdk[http-server]
+httpx
