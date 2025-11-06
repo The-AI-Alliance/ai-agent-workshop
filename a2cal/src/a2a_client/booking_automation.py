@@ -140,7 +140,30 @@ class BookingAutomation:
         if not booking_agent.agent:
             if progress_callback:
                 await progress_callback(0, "initializing", "Initializing booking agent...")
-            await booking_agent.init_agent()
+            
+            try:
+                # Add timeout to prevent hanging
+                logger.info("Initializing booking agent with 30s timeout...")
+                await asyncio.wait_for(booking_agent.init_agent(), timeout=30.0)
+                logger.info("Booking agent initialized successfully")
+            except asyncio.TimeoutError:
+                error_msg = "Booking agent initialization timed out after 30 seconds. Check MCP server connection."
+                logger.error(error_msg)
+                return {
+                    'success': False,
+                    'message': error_msg,
+                    'conversation_history': [],
+                    'booking_details': None
+                }
+            except Exception as e:
+                error_msg = f"Failed to initialize booking agent: {str(e)}"
+                logger.error(error_msg, exc_info=True)
+                return {
+                    'success': False,
+                    'message': error_msg,
+                    'conversation_history': [],
+                    'booking_details': None
+                }
         
         # Conversation loop - BookingAgent talks to target agent
         conversation_context = f"{booking_context}\n\nTarget Agent A2A Endpoint: {target_agent_endpoint}\nTarget Agent DID: {target_agent_did}"

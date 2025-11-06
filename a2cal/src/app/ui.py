@@ -856,10 +856,13 @@ def use_agent_to_book_page():
                 if 'booking_agent' not in st.session_state or st.session_state.booking_agent is None:
                     from agents.calendar_booking_agent import CalendarBookingAgent
                     
-                    st.session_state.booking_agent = CalendarBookingAgent(
-                        agent_name="Calendar Booking Agent",
-                        description="Intelligent agent that negotiates meeting bookings on your behalf",
-                        instructions="""You are an intelligent booking agent that helps schedule meetings.
+                    status_text.markdown("**Creating booking agent...**")
+                    
+                    try:
+                        st.session_state.booking_agent = CalendarBookingAgent(
+                            agent_name="Calendar Booking Agent",
+                            description="Intelligent agent that negotiates meeting bookings on your behalf",
+                            instructions="""You are an intelligent booking agent that helps schedule meetings.
 Your goal is to negotiate with other agents to find optimal meeting times based on user preferences.
 
 When communicating with other agents:
@@ -870,7 +873,14 @@ When communicating with other agents:
 5. Confirm bookings once agreed upon
 
 Always prioritize the user's preferences while being flexible to find workable solutions."""
-                    )
+                        )
+                        status_text.markdown("**✅ Booking agent created**")
+                    except Exception as e:
+                        st.error(f"❌ Failed to create booking agent: {str(e)}")
+                        import traceback
+                        with st.expander("🐛 Error Details"):
+                            st.code(traceback.format_exc())
+                        st.stop()
                 
                 # Run booking automation with AI agent
                 automation = BookingAutomation(max_turns=5)
@@ -913,10 +923,31 @@ Always prioritize the user's preferences while being flexible to find workable s
                             st.markdown("---")
                 
                 except Exception as e:
+                    progress_bar.progress(0.0)
+                    status_text.markdown("**❌ Error occurred**")
                     st.error(f"❌ Error during automated booking: {str(e)}")
+                    
+                    # Check for common issues
+                    error_str = str(e).lower()
+                    if 'timeout' in error_str:
+                        st.warning("⚠️ **Tip:** The MCP server connection timed out. Make sure your MCP server is running and accessible.")
+                    elif 'connection' in error_str or 'connect' in error_str:
+                        st.warning("⚠️ **Tip:** Cannot connect to MCP server. Check the server status in the sidebar.")
+                    elif 'a2a' in error_str:
+                        st.warning("⚠️ **Tip:** A2A communication issue. Verify the target agent's endpoint is correct.")
+                    
                     import traceback
-                    with st.expander("🐛 Error Details"):
+                    with st.expander("🐛 Full Error Details"):
                         st.code(traceback.format_exc())
+                    
+                    # Show conversation history if any was captured
+                    if automation.conversation_history:
+                        with st.expander("📜 Conversation Before Error"):
+                            for turn in automation.conversation_history:
+                                st.markdown(f"### Turn {turn.turn_number}")
+                                st.markdown(f"**Sent:** {turn.message_sent}")
+                                st.markdown(f"**Received:** {turn.response_received}")
+                                st.markdown("---")
         
         st.markdown("---")
     
