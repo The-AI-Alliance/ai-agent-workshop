@@ -2,14 +2,16 @@
 import subprocess
 import sys
 import uvicorn
+import argparse
 from pathlib import Path
 
 from dotenv import load_dotenv
 from pyngrok import ngrok
 
 from agents.server import create_a2a_app
-from common.server import app, attach_a2a_server, attach_mcp_server
-from mmcp.server import create_mcp_app
+from common.server import get_app, attach_a2a_server, attach_mcp_server
+from common.server_state import set_a2a_server_status, set_base_server_url, set_mcp_server_status
+from mmcp.server import create_mcp_app, serve
 
 
 def load_environment_variables() -> None:
@@ -98,36 +100,172 @@ def launch_streamlit() -> None:
     time.sleep(2)
 
 
+def run_mcp_standalone(host: str = "localhost", port: int = 10100, transport: str = "sse") -> None:
+    """Run MCP server standalone on a separate port.
+    
+    Args:
+        host: Host to bind to (default: localhost)
+        port: Port to run on (default: 10100)
+        transport: Transport type (default: sse)
+    """
+    print("="*60)
+    print("🧪 Running MCP Server Standalone")
+    print(f"📍 Host: {host}")
+    print(f"🔌 Port: {port}")
+    print(f"📡 Transport: {transport}")
+    print(f"🌐 URL: http://{host}:{port}/mcp")
+    print(f"📡 SSE URL: http://{host}:{port}/mcp/sse")
+    print("="*60)
+    print("\n🚀 Starting MCP server...")
+    print("Press CTRL+C to stop\n")
+    
+    try:
+        serve(host=host, port=port, transport=transport)
+    except KeyboardInterrupt:
+        print("\n\n⚠️  MCP server stopped by user")
+    except Exception as e:
+        print(f"\n❌ Error running MCP server: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
 def main() -> None:
     """Main entry point."""
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="A2Cal Calendar Agent Server")
+    parser.add_argument(
+        "--mcp-standalone",
+        action="store_true",
+        help="Run MCP server standalone on port 10100 (instead of integrated server)"
+    )
+    parser.add_argument(
+        "--mcp-port",
+        type=int,
+        default=10100,
+        help="Port for standalone MCP server (default: 10100)"
+    )
+    parser.add_argument(
+        "--mcp-host",
+        type=str,
+        default="localhost",
+        help="Host for standalone MCP server (default: localhost)"
+    )
+    parser.add_argument(
+        "--mcp-transport",
+        type=str,
+        default="sse",
+        choices=["sse", "stdio"],
+        help="Transport for standalone MCP server (default: sse)"
+    )
+    
+    args = parser.parse_args()
+    
     # Load environment variables
     load_environment_variables()
     
+    # If standalone MCP mode, run just the MCP server
+    if args.mcp_standalone:
+        run_mcp_standalone(host=args.mcp_host, port=args.mcp_port, transport=args.mcp_transport)
+        return
+    
+    # Otherwise, run the integrated server
     # Launch Streamlit UI in a separate process
     launch_streamlit()
     
     # Create and attach MCP server
+    # Note: host/port are ignored when mounting - they're only used for standalone mode
     print("🚀 Initializing MCP server...")
-    mcp_app = create_mcp_app(host='localhost', port=10100)
-    attach_mcp_server(mcp_app, prefix="/mcp")
+    mcp_app = create_mcp_app()  # Uses shared calendar service
+    attach_mcp_server(mcp_app, prefix="/")
     
-    # Create and attach A2A agent server
-    # Use Calendar Manager Agent as default
-    agent_card_path = Path(__file__).parent / "agent_cards" / "calendar_admin.json"
-    if agent_card_path.exists():
-        print("🚀 Initializing A2A agent server...")
+    # Create and attach A2A agent servers
+    # Create both Calendar Admin and Calendar Booking agents
+    a2a_started = False
+    
+    # Calendar Admin Agent
+    admin_card_path = Path(__file__).parent / "agent_cards" / "calendar_admin.json"
+    if admin_card_path.exists():
+        print("🚀 Initializing Calendar Admin A2A agent server...")
         try:
-            a2a_app = create_a2a_app(str(agent_card_path))
+            a2a_app = create_a2a_app(
+                str(admin_card_path),
+                host="localhost",
+                a2a_port=8000,  # A2A is at /agent on port 8000
+                mcp_port=8000   # MCP is at /mcp on port 8000
+            )
             attach_a2a_server(a2a_app, prefix="/agent")
+            a2a_started = True
+            print("✅ Calendar Admin Agent server started")
         except Exception as e:
-            print(f"⚠️  Warning: Could not attach A2A agent server: {e}")
-            print("   Continuing without A2A agent server...")
+            print(f"⚠️  Warning: Could not attach Calendar Admin A2A agent server: {e}")
+            print("   Continuing without Calendar Admin agent server...")
     else:
-        print(f"⚠️  Warning: Agent card not found at {agent_card_path}")
-        print("   Continuing without A2A agent server...")
+        print(f"⚠️  Warning: Agent card not found at {admin_card_path}")
+    
+    # Calendar Booking Agent (register but don't attach as separate server)
+    # We'll just register it so it appears in agents.json
+    booking_card_path = Path(__file__).parent / "agent_cards" / "calendar_booking.json"
+    if booking_card_path.exists():
+        print("🚀 Registering Calendar Booking Agent...")
+        try:
+            # Create the agent to generate DID and register it
+            # But don't attach as a separate server (it can use the same MCP server)
+            from common.server_state import register_agent_did
+            import json
+            from a2a.types import AgentCard
+            from agents.calendar_booking_agent import CalendarBookingAgent
+            
+            # Load agent card
+            with booking_card_path.open() as f:
+                card_data = json.load(f)
+            agent_card = AgentCard(**card_data)
+            
+            # Create agent to generate DID
+            agent = CalendarBookingAgent(
+                agent_name=agent_card.name,
+                description=agent_card.description or 'Calendar Booking Agent',
+                instructions="",
+                host="localhost",
+                a2a_port=8000,
+                mcp_port=8000
+            )
+            
+            # Register the agent
+            if hasattr(agent, 'get_did'):
+                agent_did = agent.get_did()
+                agent_card_abs_path = booking_card_path.resolve()
+                register_agent_did(agent_did, agent_card.name, str(agent_card_abs_path))
+                print(f"✅ Calendar Booking Agent registered with DID: {agent_did}")
+        except Exception as e:
+            print(f"⚠️  Warning: Could not register Calendar Booking Agent: {e}")
+            import traceback
+            traceback.print_exc()
+    else:
+        print(f"⚠️  Warning: Agent card not found at {booking_card_path}")
     
     # Set up ngrok tunnel
     ngrok_url = setup_ngrok(port=8000)
+    
+    # Update server state with ngrok URLs (use public URL, not localhost)
+    # Check if ngrok_url is actually an ngrok URL (contains ngrok domain) or localhost
+    if "localhost" not in ngrok_url and "127.0.0.1" not in ngrok_url:
+        # It's an ngrok/public URL
+        base_url = ngrok_url
+    else:
+        # Fallback to localhost
+        base_url = f"http://localhost:8000"
+    
+    mcp_url = f"{base_url}/mcp"
+    a2a_url = f"{base_url}/agent" if a2a_started else None
+    
+    # Update state: MCP server is running
+    set_mcp_server_status(started=True, url=mcp_url)
+    set_base_server_url(base_url)
+    if a2a_started:
+        set_a2a_server_status(started=True, url=a2a_url)
+    else:
+        set_a2a_server_status(started=False)
     
     # Run the aggregated server
     print("\n" + "="*60)
@@ -146,6 +284,8 @@ def main() -> None:
         print(f"   - A2A Agent: {ngrok_url}/agent")
     print("="*60 + "\n")
     
+    # Get the app instance (created with MCP lifespan by attach_mcp_server)
+    app = get_app()
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
 
