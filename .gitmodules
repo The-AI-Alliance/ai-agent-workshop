@@ -7,3 +7,9 @@
 [submodule "day2/session-2/calendar-agent/A2A-MCP-Server"]
 	path = day2/session-2/calendar-agent/A2A-MCP-Server
 	url = git@github.com:GongRzhe/A2A-MCP-Server.git
+[submodule "submodules/mcp-context-forge"]
+	path = submodules/mcp-context-forge
+	url = git@github.com:IBM/mcp-context-forge.git
+[submodule "submodules/a2a-inspector"]
+	path = submodules/a2a-inspector
+	url = git@github.com:a2aproject/a2a-inspector.git
