@@ -64,9 +64,11 @@ def is_debug() -> bool:
 
 def get_mcp_server_config() -> ServerConfig:
     """Get the MCP server configuration."""
+    # MCP server is running on port 8000 with Streamable HTTP transport
+    # The endpoint is at /mcp (not /mcp/sse)
     return ServerConfig(
         host='localhost',
-        port=10100,
-        transport='sse',
-        url='http://localhost:10100/sse',
+        port=8000,
+        transport='streamable-http',
+        url='http://localhost:8000/mcp',
     )

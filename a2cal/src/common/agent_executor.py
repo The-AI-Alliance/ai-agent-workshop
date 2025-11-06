@@ -48,54 +48,99 @@ class GenericAgentExecutor(AgentExecutor):
 
         updater = TaskUpdater(event_queue, task.id, task.context_id)
 
-        async for item in self.agent.stream(query, task.context_id, task.id):
-            # Agent to Agent call will return events,
-            # Update the relevant ids to proxy back.
-            if hasattr(item, 'root') and isinstance(
-                item.root, SendStreamingMessageSuccessResponse
-            ):
-                event = item.root.result
-                if isinstance(
-                    event,
-                    (TaskStatusUpdateEvent | TaskArtifactUpdateEvent),
+        # Update task status to working at the start
+        try:
+            await updater.update_status(
+                TaskState.working,
+                new_agent_text_message(
+                    f'{self.agent.agent_name}: Starting task...',
+                    task.context_id,
+                    task.id,
+                ),
+            )
+        except Exception as e:
+            logger.warning(f'Failed to send initial status update: {e}')
+
+        try:
+            async for item in self.agent.stream(query, task.context_id, task.id):
+                # Agent to Agent call will return events,
+                # Update the relevant ids to proxy back.
+                if hasattr(item, 'root') and isinstance(
+                    item.root, SendStreamingMessageSuccessResponse
                 ):
-                    await event_queue.enqueue_event(event)
-                continue
+                    event = item.root.result
+                    if isinstance(
+                        event,
+                        (TaskStatusUpdateEvent | TaskArtifactUpdateEvent),
+                    ):
+                        await event_queue.enqueue_event(event)
+                    continue
 
-            is_task_complete = item['is_task_complete']
-            require_user_input = item['require_user_input']
+                is_task_complete = item['is_task_complete']
+                require_user_input = item['require_user_input']
 
-            if is_task_complete:
-                if item['response_type'] == 'data':
-                    part = DataPart(data=item['content'])
-                else:
-                    part = TextPart(text=item['content'])
+                if is_task_complete:
+                    if item['response_type'] == 'data':
+                        part = DataPart(data=item['content'])
+                    else:
+                        part = TextPart(text=item['content'])
 
-                await updater.add_artifact(
-                    [part],
-                    name=f'{self.agent.agent_name}-result',
-                )
-                await updater.complete()
-                break
-            if require_user_input:
+                    await updater.add_artifact(
+                        [part],
+                        name=f'{self.agent.agent_name}-result',
+                    )
+                    await updater.complete()
+                    break
+                if require_user_input:
+                    await updater.update_status(
+                        TaskState.input_required,
+                        new_agent_text_message(
+                            item['content'],
+                            task.context_id,
+                            task.id,
+                        ),
+                        final=True,
+                    )
+                    break
                 await updater.update_status(
-                    TaskState.input_required,
+                    TaskState.working,
                     new_agent_text_message(
                         item['content'],
                         task.context_id,
                         task.id,
                     ),
+                )
+        except Exception as e:
+            # Log the full error with traceback for debugging
+            logger.error(
+                f'Error executing agent {self.agent.agent_name}: {e}',
+                exc_info=True
+            )
+            
+            # Try to update task status with error message
+            error_message = f'Error: {str(e)}'
+            # Truncate very long error messages
+            if len(error_message) > 500:
+                error_message = error_message[:500] + '...'
+            
+            try:
+                await updater.update_status(
+                    TaskState.working,  # Use working state as fallback if failed/error not available
+                    new_agent_text_message(
+                        f'{self.agent.agent_name} encountered an error: {error_message}',
+                        task.context_id,
+                        task.id,
+                    ),
                     final=True,
                 )
-                break
-            await updater.update_status(
-                TaskState.working,
-                new_agent_text_message(
-                    item['content'],
-                    task.context_id,
-                    task.id,
-                ),
-            )
+            except Exception as update_error:
+                logger.error(
+                    f'Failed to update task status with error: {update_error}',
+                    exc_info=True
+                )
+            
+            # Re-raise to let A2A framework handle it appropriately
+            raise
 
     def _validate_request(self, context: RequestContext) -> bool:
         return False
