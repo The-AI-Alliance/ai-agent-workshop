@@ -774,60 +774,69 @@ def use_agent_to_book_page():
     
     # Automatic Booking Section
     if a2a_endpoint:
-        st.subheader("🤖 Automated Booking")
-        st.markdown("Fill in your meeting preferences and let the AI agent handle the booking automatically.")
+        st.subheader("🤖 Automated AI Booking")
+        st.markdown("""
+        Let your **Calendar Booking Agent** use AI to intelligently negotiate with the target agent.
+        The agent will use your preferences from the sidebar to find the best meeting time.
+        """)
         
-        with st.expander("📅 Meeting Preferences", expanded=False):
+        # Show current preferences summary
+        with st.expander("📋 Current Preferences (from sidebar)", expanded=False):
+            prefs = st.session_state.preferences
             col1, col2 = st.columns(2)
             
             with col1:
-                meeting_date = st.text_input(
-                    "Date",
-                    placeholder="e.g., tomorrow, 2025-11-07",
-                    help="When would you like to meet?",
-                    key="auto_booking_date"
-                )
-                meeting_time = st.text_input(
-                    "Time",
-                    placeholder="e.g., 2pm, 14:00",
-                    help="What time works best?",
-                    key="auto_booking_time"
-                )
-                meeting_duration = st.number_input(
-                    "Duration (minutes)",
-                    min_value=15,
-                    max_value=480,
-                    value=60,
-                    step=15,
-                    key="auto_booking_duration"
-                )
-            
+                st.markdown("**Time Preferences:**")
+                st.write(f"- Hours: {prefs.preferred_start_hour}:00 - {prefs.preferred_end_hour}:00")
+                st.write(f"- Days: {', '.join(prefs.preferred_days)}")
+                
             with col2:
-                meeting_title = st.text_input(
-                    "Title",
-                    placeholder="e.g., Project Review",
-                    key="auto_booking_title"
-                )
-                meeting_description = st.text_area(
-                    "Description",
-                    placeholder="Optional meeting description",
-                    key="auto_booking_description",
-                    height=100
-                )
+                st.markdown("**Duration:**")
+                st.write(f"- Preferred: {prefs.preferred_duration}")
+                st.write(f"- Range: {prefs.min_duration} - {prefs.max_duration}")
+            
+            st.markdown("**Constraints:**")
+            st.write(f"- Buffer between meetings: {prefs.buffer_between_meetings} minutes")
+            st.write(f"- Max meetings per day: {prefs.max_meetings_per_day}")
+            
+            st.info("💡 Update preferences in the sidebar to change booking behavior")
+        
+        # Optional: Meeting title and description
+        with st.expander("📝 Meeting Details (Optional)", expanded=False):
+            meeting_title = st.text_input(
+                "Meeting Title",
+                placeholder="e.g., Project Review",
+                key="auto_booking_title"
+            )
+            meeting_description = st.text_area(
+                "Meeting Description",
+                placeholder="Optional description for the meeting",
+                key="auto_booking_description",
+                height=80
+            )
         
         # Book Meeting button
         col1, col2, col3 = st.columns([2, 1, 2])
         with col2:
-            if st.button("🤖 Book Meeting Automatically", type="primary", use_container_width=True, key="auto_book_button"):
+            if st.button("🤖 Let AI Book Meeting", type="primary", use_container_width=True, key="auto_book_button"):
                 # Initialize booking automation
                 from a2a_client.booking_automation import BookingAutomation, MeetingPreferences
                 
-                # Create preferences
+                # Convert sidebar preferences to MeetingPreferences
+                # Use natural language for the AI to interpret
+                prefs = st.session_state.preferences
+                date_pref = f"within the next week, preferably on {', '.join(prefs.preferred_days)}"
+                time_pref = f"between {prefs.preferred_start_hour}:00 and {prefs.preferred_end_hour}:00"
+                
+                # Parse duration (e.g., "1h" -> 60 minutes)
+                duration_map = {"15m": 15, "30m": 30, "45m": 45, "1h": 60, "1.5h": 90, "2h": 120, "3h": 180}
+                duration_minutes = duration_map.get(prefs.preferred_duration, 60)
+                
                 preferences = MeetingPreferences(
-                    date=meeting_date if meeting_date else None,
-                    time=meeting_time if meeting_time else None,
-                    duration=meeting_duration if meeting_duration else None,
-                    title=meeting_title if meeting_title else None,
+                    date=date_pref,
+                    time=time_pref,
+                    duration=duration_minutes,
+                    title=meeting_title if meeting_title else "Meeting",
                     description=meeting_description if meeting_description else None,
                     partner_agent_id=agent_did
                 )
@@ -843,7 +852,27 @@ def use_agent_to_book_page():
                     progress_bar.progress(min(progress, 1.0))
                     status_text.markdown(f"**Turn {turn}/5:** {message}")
                 
-                # Run booking automation
+                # Get or create booking agent
+                if 'booking_agent' not in st.session_state or st.session_state.booking_agent is None:
+                    from agents.calendar_booking_agent import CalendarBookingAgent
+                    
+                    st.session_state.booking_agent = CalendarBookingAgent(
+                        agent_name="Calendar Booking Agent",
+                        description="Intelligent agent that negotiates meeting bookings on your behalf",
+                        instructions="""You are an intelligent booking agent that helps schedule meetings.
+Your goal is to negotiate with other agents to find optimal meeting times based on user preferences.
+
+When communicating with other agents:
+1. Be professional and clear
+2. Share relevant preferences (time, date, duration)
+3. Ask for their availability
+4. Negotiate to find mutually agreeable times
+5. Confirm bookings once agreed upon
+
+Always prioritize the user's preferences while being flexible to find workable solutions."""
+                    )
+                
+                # Run booking automation with AI agent
                 automation = BookingAutomation(max_turns=5)
                 
                 try:
@@ -855,7 +884,9 @@ def use_agent_to_book_page():
                     result = loop.run_until_complete(
                         automation.book_meeting(
                             target_agent_endpoint=a2a_endpoint,
+                            target_agent_did=agent_did,
                             preferences=preferences,
+                            booking_agent=st.session_state.booking_agent,
                             progress_callback=update_progress
                         )
                     )

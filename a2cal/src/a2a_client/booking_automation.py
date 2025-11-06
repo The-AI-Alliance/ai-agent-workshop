@@ -86,15 +86,25 @@ class BookingAutomation:
     async def book_meeting(
         self,
         target_agent_endpoint: str,
+        target_agent_did: str,
         preferences: MeetingPreferences,
+        booking_agent,
         progress_callback: Optional[callable] = None
     ) -> Dict[str, Any]:
         """
-        Automatically book a meeting with the target agent.
+        Automatically book a meeting with the target agent using a BookingAgent.
+        
+        The BookingAgent acts as an intelligent intermediary that:
+        - Understands your preferences
+        - Negotiates with the target agent via A2A
+        - Finds the best match based on availability
+        - Handles multi-turn conversations intelligently
         
         Args:
             target_agent_endpoint: A2A endpoint URL of the target agent
+            target_agent_did: DID of the target agent
             preferences: Meeting preferences to share
+            booking_agent: CalendarBookingAgent instance to use for intelligent booking
             progress_callback: Optional callback for progress updates
                                Signature: callback(turn: int, status: str, message: str)
         
@@ -106,6 +116,7 @@ class BookingAutomation:
                 - booking_details: Optional[Dict]
         """
         logger.info(f"Starting automated booking flow with {target_agent_endpoint}")
+        logger.info(f"Using BookingAgent: {booking_agent.agent_name}")
         
         # Import here to avoid circular dependencies
         try:
@@ -119,45 +130,83 @@ class BookingAutomation:
                 'booking_details': None
             }
         
-        # Initial message with preferences
-        initial_message = self._build_initial_message(preferences)
+        # Build the context for the booking agent
+        booking_context = self._build_booking_context(preferences, target_agent_did)
         
         if progress_callback:
-            await progress_callback(0, "starting", "Initiating booking request...")
+            await progress_callback(0, "starting", "Initiating AI-powered booking...")
         
-        # Conversation loop
-        current_message = initial_message
+        # Initialize booking agent if needed
+        if not booking_agent.agent:
+            if progress_callback:
+                await progress_callback(0, "initializing", "Initializing booking agent...")
+            await booking_agent.init_agent()
+        
+        # Conversation loop - BookingAgent talks to target agent
+        conversation_context = f"{booking_context}\n\nTarget Agent A2A Endpoint: {target_agent_endpoint}\nTarget Agent DID: {target_agent_did}"
         
         for turn in range(1, self.max_turns + 1):
             self.current_turn = turn
             
             try:
+                # Ask booking agent to formulate the message
+                if progress_callback:
+                    await progress_callback(
+                        turn,
+                        "thinking",
+                        f"Turn {turn}/{self.max_turns}: Booking agent is analyzing..."
+                    )
+                
+                # Build prompt for booking agent
+                agent_prompt = self._build_agent_prompt(turn, conversation_context, target_agent_did)
+                
+                logger.info(f"Turn {turn}: Asking booking agent to formulate message...")
+                
+                # Get booking agent's intelligent response
+                booking_agent_response = None
+                async for chunk in booking_agent.stream(agent_prompt, f"auto_booking_{datetime.now().timestamp()}", f"turn_{turn}"):
+                    if chunk.get('is_task_complete'):
+                        booking_agent_response = chunk.get('content')
+                        logger.info(f"Turn {turn}: Booking agent suggests: {str(booking_agent_response)[:200]}...")
+                        break
+                
+                if not booking_agent_response:
+                    raise Exception("Booking agent did not provide a response")
+                
+                # Extract the message to send from booking agent's response
+                message_to_send = self._extract_message_from_agent_response(booking_agent_response)
+                
                 # Send message to target agent
                 if progress_callback:
                     await progress_callback(
                         turn,
                         "sending",
-                        f"Turn {turn}/{self.max_turns}: Sending message to agent..."
+                        f"Turn {turn}/{self.max_turns}: Sending to target agent..."
                     )
                 
-                logger.info(f"Turn {turn}: Sending message: {current_message[:100]}...")
+                logger.info(f"Turn {turn}: Sending to target: {message_to_send[:100]}...")
                 
                 response = await send_message_to_a2a_agent(
                     endpoint_url=target_agent_endpoint,
-                    message_text=current_message
+                    message_text=message_to_send
                 )
                 
-                logger.info(f"Turn {turn}: Received response: {response[:200]}...")
+                logger.info(f"Turn {turn}: Target agent responded: {response[:200]}...")
                 
                 # Record conversation turn
                 conversation_turn = ConversationTurn(
                     turn_number=turn,
-                    message_sent=current_message,
+                    message_sent=message_to_send,
                     response_received=response,
                     timestamp=datetime.now(),
-                    metadata={}
+                    metadata={
+                        'booking_agent_analysis': str(booking_agent_response)[:500]
+                    }
                 )
                 self.conversation_history.append(conversation_turn)
+                
+                # Update conversation context with the new exchange
+                conversation_context += f"\n\nTurn {turn}:\nYou sent: {message_to_send}\nTarget agent responded: {response}"
                 
                 if progress_callback:
                     await progress_callback(
@@ -272,12 +321,68 @@ class BookingAutomation:
             'booking_details': None
         }
     
-    def _build_initial_message(self, preferences: MeetingPreferences) -> str:
-        """Build the initial booking request message."""
-        base_message = "I would like to book a meeting with you. "
-        prefs_text = preferences.to_natural_language()
+    def _build_booking_context(self, preferences: MeetingPreferences, target_agent_did: str) -> str:
+        """Build the context for the booking agent."""
+        context_parts = [
+            "You are helping to automatically book a meeting with another agent.",
+            f"Target Agent DID: {target_agent_did}",
+            "",
+            "Meeting Preferences:",
+            preferences.to_natural_language(),
+            "",
+            "Your goal is to:",
+            "1. Communicate clearly and professionally with the target agent",
+            "2. Negotiate the best meeting time based on preferences",
+            "3. Handle any questions or requests for additional information",
+            "4. Confirm the booking once agreed upon",
+            "",
+            "Remember: You are representing a user who wants to schedule a meeting."
+        ]
+        return "\n".join(context_parts)
+    
+    def _build_agent_prompt(self, turn: int, conversation_context: str, target_agent_did: str) -> str:
+        """Build the prompt for the booking agent at each turn."""
+        if turn == 1:
+            # First turn - initial booking request
+            prompt = f"""{conversation_context}
+
+This is your first contact with the target agent. Craft a clear, professional booking request that includes:
+1. A greeting
+2. Your intent to schedule a meeting
+3. The key preferences (date/time/duration if specified)
+4. A polite request for their availability
+
+Generate ONLY the message you want to send to the target agent. Do not include explanations or meta-commentary."""
+        else:
+            # Subsequent turns - respond to target agent
+            prompt = f"""{conversation_context}
+
+Based on the target agent's latest response, formulate an appropriate reply that:
+1. Addresses any questions they asked
+2. Provides any requested information
+3. Negotiates if needed
+4. Moves toward confirming the booking
+
+Generate ONLY the message you want to send to the target agent. Do not include explanations or meta-commentary."""
         
-        return base_message + prefs_text
+        return prompt
+    
+    def _extract_message_from_agent_response(self, agent_response: Any) -> str:
+        """Extract the actual message to send from the booking agent's response."""
+        if isinstance(agent_response, dict):
+            # If it's a dict with a question field (input required)
+            if 'question' in agent_response:
+                return agent_response['question']
+            # If it has other fields, try to extract text
+            if 'message' in agent_response:
+                return agent_response['message']
+            # Otherwise convert to JSON string
+            import json
+            return json.dumps(agent_response)
+        elif isinstance(agent_response, str):
+            return agent_response
+        else:
+            return str(agent_response)
     
     def _analyze_response(self, response: str) -> Dict[str, Any]:
         """
@@ -377,44 +482,6 @@ class BookingAutomation:
             'confirmation_message': response,
             'timestamp': datetime.now().isoformat()
         }
-    
-    def _build_followup_message(
-        self,
-        preferences: MeetingPreferences,
-        missing_info: List[str],
-        previous_response: str
-    ) -> str:
-        """Build a follow-up message providing missing information."""
-        parts = []
-        
-        for info_type in missing_info:
-            if info_type == 'time' and preferences.time:
-                parts.append(f"Time: {preferences.time}")
-            elif info_type == 'date' and preferences.date:
-                parts.append(f"Date: {preferences.date}")
-            elif info_type == 'duration' and preferences.duration:
-                parts.append(f"Duration: {preferences.duration} minutes")
-            elif info_type == 'partner_agent_id' and preferences.partner_agent_id:
-                parts.append(f"Partner agent ID: {preferences.partner_agent_id}")
-        
-        if parts:
-            return "Here is the additional information: " + ", ".join(parts) + "."
-        else:
-            return "I don't have that information. Please proceed with available details or suggest alternatives."
-    
-    def _build_acknowledgment_message(self, previous_response: str) -> str:
-        """Build an acknowledgment message to continue the conversation."""
-        # Simple acknowledgments to keep conversation flowing
-        acknowledgments = [
-            "Thank you. Please continue.",
-            "Understood. What's next?",
-            "Got it. Please proceed.",
-            "Okay, please go ahead.",
-            "I'm ready to proceed."
-        ]
-        
-        # Rotate through acknowledgments based on turn number
-        return acknowledgments[self.current_turn % len(acknowledgments)]
     
     def get_conversation_summary(self) -> str:
         """Get a formatted summary of the conversation."""
