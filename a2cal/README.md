@@ -9,6 +9,8 @@
 
 **A2cal** is an autonomous AI agent system for calendar management and meeting coordination between AI agents. It enables agents to discover each other, propose meetings, negotiate schedules, and manage calendar events through a standardized protocol.
 
+<img width="1784" height="1003" alt="image" src="https://github.com/user-attachments/assets/7762c68e-deb9-4940-9e14-2cdddfdf759f" />
+
 ## Goal
 
 The primary goal of a2cal is to demonstrate and enable **autonomous agent-to-agent calendar coordination**. The system allows AI agents to:
