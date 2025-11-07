@@ -184,17 +184,47 @@ class BookingAutomation:
                 agent_prompt = self._build_agent_prompt(turn, conversation_context, target_agent_did)
                 
                 logger.info(f"Turn {turn}: Asking booking agent to formulate message...")
+                print(f"[BookingAutomation] Turn {turn}: Asking booking agent to formulate message...")
                 
-                # Get booking agent's intelligent response
+                # Get booking agent's intelligent response with timeout
                 booking_agent_response = None
-                async for chunk in booking_agent.stream(agent_prompt, f"auto_booking_{datetime.now().timestamp()}", f"turn_{turn}"):
-                    if chunk.get('is_task_complete'):
-                        booking_agent_response = chunk.get('content')
-                        logger.info(f"Turn {turn}: Booking agent suggests: {str(booking_agent_response)[:200]}...")
-                        break
+                
+                async def get_agent_response():
+                    nonlocal booking_agent_response
+                    print(f"[BookingAutomation] Turn {turn}: Starting to stream from booking agent...")
+                    async for chunk in booking_agent.stream(agent_prompt, f"auto_booking_{datetime.now().timestamp()}", f"turn_{turn}"):
+                        logger.debug(f"Turn {turn}: Received chunk from booking agent: {chunk}")
+                        print(f"[BookingAutomation] Turn {turn}: Received chunk: {chunk.get('is_task_complete', False)}")
+                        if chunk.get('is_task_complete'):
+                            booking_agent_response = chunk.get('content')
+                            logger.info(f"Turn {turn}: Booking agent suggests: {str(booking_agent_response)[:200]}...")
+                            print(f"[BookingAutomation] Turn {turn}: Booking agent response received")
+                            break
+                
+                try:
+                    await asyncio.wait_for(get_agent_response(), timeout=45.0)
+                except asyncio.TimeoutError:
+                    error_msg = f"Turn {turn}: Booking agent timed out while formulating response"
+                    logger.error(error_msg)
+                    
+                    if progress_callback:
+                        await progress_callback(
+                            turn,
+                            "timeout",
+                            f"⏱️ Booking agent timed out"
+                        )
+                    
+                    return {
+                        'success': False,
+                        'message': f'Booking agent timed out on turn {turn}. Could not formulate message within 45 seconds.',
+                        'conversation_history': self.conversation_history,
+                        'booking_details': None
+                    }
                 
                 if not booking_agent_response:
-                    raise Exception("Booking agent did not provide a response")
+                    error_msg = f"Turn {turn}: Booking agent did not provide a response"
+                    logger.error(error_msg)
+                    raise Exception(error_msg)
                 
                 # Extract the message to send from booking agent's response
                 message_to_send = self._extract_message_from_agent_response(booking_agent_response)
@@ -208,13 +238,55 @@ class BookingAutomation:
                     )
                 
                 logger.info(f"Turn {turn}: Sending to target: {message_to_send[:100]}...")
+                print(f"[BookingAutomation] Turn {turn}: Sending to target agent at {target_agent_endpoint}")
+                print(f"[BookingAutomation] Turn {turn}: Message: {message_to_send[:100]}...")
                 
-                response = await send_message_to_a2a_agent(
-                    endpoint_url=target_agent_endpoint,
-                    message_text=message_to_send
-                )
-                
-                logger.info(f"Turn {turn}: Target agent responded: {response[:200]}...")
+                # Add timeout to prevent hanging on A2A communication
+                try:
+                    print(f"[BookingAutomation] Turn {turn}: Waiting for A2A response (60s timeout)...")
+                    response = await asyncio.wait_for(
+                        send_message_to_a2a_agent(
+                            endpoint_url=target_agent_endpoint,
+                            message_text=message_to_send
+                        ),
+                        timeout=60.0  # 60 seconds for A2A response
+                    )
+                    logger.info(f"Turn {turn}: Target agent responded: {response[:200]}...")
+                    print(f"[BookingAutomation] Turn {turn}: Target agent responded: {response[:200]}...")
+                except asyncio.TimeoutError:
+                    error_msg = f"Turn {turn}: Target agent did not respond within 60 seconds"
+                    logger.error(error_msg)
+                    
+                    if progress_callback:
+                        await progress_callback(
+                            turn,
+                            "timeout",
+                            f"⏱️ Target agent timed out"
+                        )
+                    
+                    return {
+                        'success': False,
+                        'message': f'Target agent timed out on turn {turn}. No response received within 60 seconds.',
+                        'conversation_history': self.conversation_history,
+                        'booking_details': None
+                    }
+                except Exception as e:
+                    error_msg = f"Turn {turn}: Error communicating with target agent: {str(e)}"
+                    logger.error(error_msg, exc_info=True)
+                    
+                    if progress_callback:
+                        await progress_callback(
+                            turn,
+                            "error",
+                            f"❌ Communication error"
+                        )
+                    
+                    return {
+                        'success': False,
+                        'message': f'Communication error on turn {turn}: {str(e)}',
+                        'conversation_history': self.conversation_history,
+                        'booking_details': None
+                    }
                 
                 # Record conversation turn
                 conversation_turn = ConversationTurn(
