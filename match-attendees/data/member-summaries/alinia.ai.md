@@ -1,6 +1,0 @@
-Alinia is an “alignment platform for generative AI” focused on enforcing AI compliance and safety at scale for enterprises. Its offerings include a Guardrail API and the Alinia RAG Guard—a multilingual guardrails model for RAG applications—designed to block hallucinations, monitor and audit prompts/outputs end-to-end, prevent misuse, and provide regulation‑informed reporting across any model or hosting platform. The company targets governance, legal, and engineering teams deploying GenAI in high‑stakes, regulated domains (e.g., finance and healthcare), enabling custom compliance metrics, expert‑crafted test sets, and “control agents” powered by Alinia’s own LLMs. Distinctives include claims of up to 40% better error reduction than leading baselines, support across six languages, 10x faster AI legal red‑teaming, and 4x risk reduction with minimal latency.
-
-- Focus: GenAI compliance, guardrails, and observability (Alignment Platform for Generative AI).
-- Key product: Alinia RAG Guard; Guardrail API; custom control agents and regulation‑informed reporting.
-- Metrics: up to 40% better error reduction; 10x legal red‑teaming; 4x risk reduction; six‑language support.
-- Target users/industries: enterprise governance/legal/engineering teams; high‑stakes sectors like finance and healthcare.

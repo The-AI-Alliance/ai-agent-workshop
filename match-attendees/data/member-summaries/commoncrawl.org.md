@@ -1,7 +1,0 @@
-Common Crawl is a U.S. 501(c)(3) nonprofit (founded in 2007) that builds and maintains a free, open repository of web crawl data for researchers, companies, and individuals. Its corpus spans 300+ billion pages over 15 years, with 3–5 billion new pages added monthly, and is freely accessible via Amazon S3 for direct analysis or download, supported by tools such as the Common Crawl URL Index and regularly released host- and domain-level web graphs. Cited in 10,000+ research papers, Common Crawl’s recent updates include IBM’s GneissWeb annotations for quality and topic filtering, monthly crawl archives, and initiatives like an opt-out registry for publishers. The organization collaborates broadly across the open-data and AI ecosystem, listing partners such as the AI Alliance, Allen Institute for AI, Internet Archive, Linux Foundation, NVIDIA, PyTorch, and Hugging Face, and engages the community through events at Stanford HAI, ACL, and the UN Open Source Week.
-
-Key data points to retain
-- Scale and access: 300B+ pages; 3–5B new pages/month; free on Amazon S3 with a public URL Index and web graphs.
-- Mission/value: Open, nonprofit corpus to democratize web data; cited in 10k+ research papers.
-- Recent updates: GneissWeb quality/category annotations; monthly crawl releases; opt‑out registry for publishers.
-- Ecosystem: Partnerships include AI Alliance, Allen Institute for AI, Internet Archive, Linux Foundation, NVIDIA, PyTorch, Hugging Face.
