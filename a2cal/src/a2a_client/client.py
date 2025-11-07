@@ -384,6 +384,16 @@ async def send_message_to_a2a_agent(
                     print(f"✅ Found result_data, checking kind...", file=sys.stderr)
                     logger.info(f"✅ Found result_data, checking kind...")
                     
+                    # Convert Pydantic model to dict for consistent access
+                    if not isinstance(result_data, dict) and hasattr(result_data, 'model_dump'):
+                        try:
+                            result_data = result_data.model_dump()
+                            logger.info(f"✅ Converted result_data Pydantic model to dict")
+                            print(f"✅ Converted result_data to dict", file=sys.stderr)
+                        except Exception as e:
+                            logger.warning(f"⚠️ Could not convert result_data to dict: {e}")
+                            # Fall back to object access
+                    
                     # Get the 'kind' field to determine what type of event this is
                     event_kind = result_data.get('kind') if isinstance(result_data, dict) else getattr(result_data, 'kind', None)
                     print(f"   Event kind: {event_kind}", file=sys.stderr)
@@ -394,7 +404,17 @@ async def send_message_to_a2a_agent(
                         print(f"   📦 Processing artifact-update", file=sys.stderr)
                         logger.info(f"   📦 Processing artifact-update")
                         
+                        # Extract artifact - now result_data should be a dict
                         artifact = result_data.get('artifact') if isinstance(result_data, dict) else getattr(result_data, 'artifact', None)
+                        
+                        # Convert artifact to dict if it's a Pydantic model
+                        if artifact and not isinstance(artifact, dict) and hasattr(artifact, 'model_dump'):
+                            try:
+                                artifact = artifact.model_dump()
+                                logger.info(f"✅ Converted artifact Pydantic model to dict")
+                                print(f"✅ Converted artifact to dict", file=sys.stderr)
+                            except Exception as e:
+                                logger.warning(f"⚠️ Could not convert artifact to dict: {e}")
                         print(f"   🔍 Artifact extracted: {artifact is not None}, type: {type(artifact)}", file=sys.stderr)
                         logger.info(f"   🔍 Artifact extracted: {artifact is not None}, type: {type(artifact)}")
                         
@@ -414,6 +434,21 @@ async def send_message_to_a2a_agent(
                             print(f"   🔍 Parts extracted: {parts is not None}, type: {type(parts)}, length: {len(parts) if parts else 0}", file=sys.stderr)
                             logger.info(f"   🔍 Parts extracted: {parts is not None}, type: {type(parts)}, length: {len(parts) if parts else 0}")
                             
+                            # Convert parts list items to dicts if they're Pydantic models
+                            if parts:
+                                converted_parts = []
+                                for part in parts:
+                                    if not isinstance(part, dict) and hasattr(part, 'model_dump'):
+                                        try:
+                                            converted_parts.append(part.model_dump())
+                                        except:
+                                            converted_parts.append(part)  # Fallback to original
+                                    else:
+                                        converted_parts.append(part)
+                                parts = converted_parts
+                                logger.info(f"✅ Converted {len(parts)} parts to dicts")
+                                print(f"✅ Converted {len(parts)} parts to dicts", file=sys.stderr)
+                            
                             if parts:
                                 print(f"   Found {len(parts)} parts in artifact", file=sys.stderr)
                                 logger.info(f"   Found {len(parts)} parts in artifact")
@@ -432,25 +467,27 @@ async def send_message_to_a2a_agent(
                                     print(f"   Part {i} full: {part}", file=sys.stderr)
                                     
                                     # Handle kind="text" - extract from 'text' field
+                                    # Parts should now be dicts after conversion above
                                     if part_kind == 'text':
-                                        text_value = part.get('text') if isinstance(part, dict) else getattr(part, 'text', None)
+                                        # Prioritize dict access since we converted to dicts
+                                        if isinstance(part, dict):
+                                            text_value = part.get('text')
+                                        else:
+                                            text_value = getattr(part, 'text', None)
+                                        
                                         print(f"   🔍 Part {i} text_value: {text_value is not None}, value: {text_value[:100] if text_value else 'None'}...", file=sys.stderr)
                                         logger.info(f"   🔍 Part {i} text_value extracted: {text_value is not None}")
                                         
                                         if text_value:
-                                            response_text += text_value
+                                            response_text += str(text_value)  # Ensure it's a string
                                             print(f"   ✅ Extracted TEXT from part {i}: {text_value[:100]}...", file=sys.stderr)
-                                            logger.info(f"   ✅ Extracted TEXT from part {i}: {len(text_value)} chars")
+                                            logger.info(f"   ✅ Extracted TEXT from part {i}: {len(str(text_value))} chars")
                                         else:
                                             logger.warning(f"   ⚠️ Part {i} kind='text' but no text value found")
                                             print(f"   ⚠️ Part {i} kind='text' but no text value found", file=sys.stderr)
                                             # Debug: show what part actually contains
-                                            if isinstance(part, dict):
-                                                logger.warning(f"   🔍 Part {i} dict contents: {part}")
-                                                print(f"   🔍 Part {i} dict contents: {part}", file=sys.stderr)
-                                            else:
-                                                logger.warning(f"   🔍 Part {i} object: {part}")
-                                                print(f"   🔍 Part {i} object: {part}", file=sys.stderr)
+                                            logger.warning(f"   🔍 Part {i} full contents: {part}")
+                                            print(f"   🔍 Part {i} full contents: {part}", file=sys.stderr)
                                     
                                     # Handle kind="data" - extract from 'data.question' or 'data.message' field
                                     elif part_kind == 'data':
