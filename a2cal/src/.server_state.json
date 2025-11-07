@@ -1,0 +1,18 @@
+{
+  "agents": {
+    "did:peer:2.VzCBpNgnmyMW2CfeFbycWk4aU714gziojFvL2AxVJHhDwN.SeyJ0IjoiQTJBIiwicyI6Imh0dHBzOi8vY2IwYzllZThiYTg4Lm5ncm9rLWZyZWUuYXBwL2FnZW50In0.SeyJ0IjoiTUNQIiwicyI6Imh0dHBzOi8vY2IwYzllZThiYTg4Lm5ncm9rLWZyZWUuYXBwL21jcCJ9.SeyJ0IjoiQWdlbnRGYWN0cyIsInMiOiJodHRwczovL2NiMGM5ZWU4YmE4OC5uZ3Jvay1mcmVlLmFwcC8ud2VsbC1rbm93bi9hZ2VudGZhY3RzLmpzb24ifQ": {
+      "name": "Calendar Booking Agent",
+      "agent_card_path": "/Users/andor/workspace/github.com/ai-alliance/ai-agent-workshop/a2cal/src/agent_cards/calendar_booking.json"
+    },
+    "did:peer:2.VzCBpNgnmyMW2CfeFbycWk4aU714gziojFvL2AxVJHhDwN.SeyJ0IjoiQTJBIiwicyI6Imh0dHBzOi8vMzg2ZDk2MzhiMDg5Lm5ncm9rLWZyZWUuYXBwL2FnZW50In0.SeyJ0IjoiTUNQIiwicyI6Imh0dHBzOi8vMzg2ZDk2MzhiMDg5Lm5ncm9rLWZyZWUuYXBwL21jcCJ9.SeyJ0IjoiQWdlbnRGYWN0cyIsInMiOiJodHRwczovLzM4NmQ5NjM4YjA4OS5uZ3Jvay1mcmVlLmFwcC8ud2VsbC1rbm93bi9hZ2VudGZhY3RzLmpzb24ifQ": {
+      "name": "Calendar Booking Agent",
+      "agent_card_path": "/Users/andor/workspace/github.com/ai-alliance/ai-agent-workshop/a2cal/src/agent_cards/calendar_booking.json"
+    }
+  },
+  "calendar_admin_agent_did": "did:peer:2.VzCBpNgnmyMW2CfeFbycWk4aU714gziojFvL2AxVJHhDwN.SeyJ0IjoiQTJBIiwicyI6Imh0dHBzOi8vMzg2ZDk2MzhiMDg5Lm5ncm9rLWZyZWUuYXBwL2FnZW50In0.SeyJ0IjoiTUNQIiwicyI6Imh0dHBzOi8vMzg2ZDk2MzhiMDg5Lm5ncm9rLWZyZWUuYXBwL21jcCJ9.SeyJ0IjoiQWdlbnRGYWN0cyIsInMiOiJodHRwczovLzM4NmQ5NjM4YjA4OS5uZ3Jvay1mcmVlLmFwcC8ud2VsbC1rbm93bi9hZ2VudGZhY3RzLmpzb24ifQ",
+  "mcp_server_started": true,
+  "mcp_server_url": "https://386d9638b089.ngrok-free.app/mcp",
+  "base_server_url": "https://386d9638b089.ngrok-free.app",
+  "a2a_server_started": true,
+  "a2a_server_url": "https://386d9638b089.ngrok-free.app/agent"
+}

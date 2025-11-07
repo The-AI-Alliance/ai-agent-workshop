@@ -68,7 +68,7 @@ run:
 	@echo "   • A2A Server: http://localhost:10000"
 	@echo "   • Streamlit UI: http://localhost:8501"
 	@echo ""
-	uv run python -m src.main
+	cd src && PYTHONPATH="$(CURDIR)/src:$$PYTHONPATH" uv run python main.py
 
 # ---- Development ----
 dev: run
