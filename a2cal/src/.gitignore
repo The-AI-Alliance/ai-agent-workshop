@@ -3,3 +3,4 @@ common/agent_did.txt
 a2a_client/__pycache_*
 a2a_client/__pycache__/
 .server_state.json
+a2cal/src/.server_state.json
