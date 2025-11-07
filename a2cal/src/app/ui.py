@@ -1216,12 +1216,11 @@ Chat enabled: {chat_enabled_a2a}
                 with st.spinner("Connecting to agent..."):
                     try:
                         import asyncio
-                        import nest_asyncio
-                        
-                        # Allow nested event loops (needed for Streamlit)
-                        nest_asyncio.apply()
-                        
-                        # Run async A2A client call
+                        import sys
+                        import os
+                        from contextlib import redirect_stdout, redirect_stderr
+
+                        # Run async A2A client call in a clean event loop
                         # Use stored context_id to maintain conversation continuity
                         async def get_response():
                             return await send_message_to_a2a_agent(
@@ -1229,10 +1228,23 @@ Chat enabled: {chat_enabled_a2a}
                                 message_text=enhanced_message,
                                 context_id=st.session_state.a2a_context_id
                             )
-                        
-                        # Run the async function
-                        loop = asyncio.get_event_loop()
-                        response_text, new_context_id = loop.run_until_complete(get_response())
+
+                        # Redirect stdout/stderr to devnull to prevent broken pipe errors
+                        # when async operations try to write to closed streams
+                        devnull = open(os.devnull, 'w')
+                        try:
+                            with redirect_stdout(devnull), redirect_stderr(devnull):
+                                # Use asyncio.run() for a clean event loop (avoids nest_asyncio issues)
+                                try:
+                                    response_text, new_context_id = asyncio.run(get_response())
+                                except RuntimeError:
+                                    # If there's already an event loop, use it with nest_asyncio
+                                    import nest_asyncio
+                                    nest_asyncio.apply()
+                                    loop = asyncio.get_event_loop()
+                                    response_text, new_context_id = loop.run_until_complete(get_response())
+                        finally:
+                            devnull.close()
                         
                         # Store the context_id for conversation continuity
                         if new_context_id:
@@ -1249,6 +1261,16 @@ Chat enabled: {chat_enabled_a2a}
 
                         # Only rerun on successful message exchange
                         st.rerun()
+
+                    except BrokenPipeError as e:
+                        # Broken pipe error - likely from async/sync bridge or closed streams
+                        error_msg = "⚠️ Communication error: The connection was interrupted. This can happen when streams are closed during async operations. Try your message again."
+                        st.error(error_msg)
+                        st.session_state.a2a_chat_history.append({
+                            'role': 'assistant',
+                            'content': error_msg
+                        })
+                        # Don't rerun on error - let user see the error message
 
                     except ExceptionGroup as eg:
                         # Handle ExceptionGroup (TaskGroup errors)
