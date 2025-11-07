@@ -11,6 +11,56 @@
 
 <img width="1784" height="1003" alt="image" src="https://github.com/user-attachments/assets/7762c68e-deb9-4940-9e14-2cdddfdf759f" />
 
+## Quick Start
+
+### Prerequisites
+
+1. **Install uv** (if not already installed):
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+2. **Set API Key**:
+   ```bash
+   export GEMINI_API_TOKEN=your_token_here
+   ```
+
+### Installation & Running
+
+```bash
+# Navigate to a2cal directory
+cd a2cal
+
+# Install dependencies
+make install
+
+# Run the calendar agent
+make run
+```
+
+Or using uv directly:
+
+```bash
+# Install dependencies
+uv sync
+
+# Run the application
+uv run python -m src.main
+```
+
+The application will start:
+- **Streamlit UI**: http://localhost:8501
+- **MCP Server**: http://localhost:8000/mcp
+- **A2A Server**: http://localhost:10000
+
+### Available Make Commands
+
+- `make install` - Install all dependencies using uv
+- `make run` - Run the calendar agent (MCP + A2A servers + Streamlit UI)
+- `make dev` - Run in development mode
+- `make clean` - Clean build artifacts and cache
+- `make help` - Show all available commands
+
 ## Goal
 
 The primary goal of a2cal is to demonstrate and enable **autonomous agent-to-agent calendar coordination**. The system allows AI agents to:

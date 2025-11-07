@@ -31,10 +31,26 @@ class CalendarDBAdapter:
                     duration TEXT NOT NULL,
                     status TEXT NOT NULL,
                     partner_agent_id TEXT NOT NULL,
+                    title TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
             """)
+            
+            # Migration: Add title column if it doesn't exist (for existing databases)
+            # Check if column exists by trying to select it
+            cursor.execute("PRAGMA table_info(events)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'title' not in columns:
+                try:
+                    cursor.execute("ALTER TABLE events ADD COLUMN title TEXT")
+                    conn.commit()  # Explicitly commit the migration
+                    print(f"🔍 DEBUG: ✓ Added 'title' column to events table (migration)")
+                except sqlite3.OperationalError as e:
+                    print(f"🔍 DEBUG: ✗ Failed to add 'title' column: {e}")
+            else:
+                print(f"🔍 DEBUG: ✓ 'title' column already exists in events table")
             
             # Preferences table (single row)
             cursor.execute("""
@@ -73,45 +89,69 @@ class CalendarDBAdapter:
         Returns:
             True if successful, False otherwise
         """
+        import os
+        abs_db_path = os.path.abspath(self.db_path)
+        
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                # Get status value (handle both enum and string)
-                status_value = event.status.value if hasattr(event.status, 'value') else str(event.status)
-                
-                cursor.execute("""
-                    INSERT OR REPLACE INTO events 
-                    (event_id, time, duration, status, partner_agent_id, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    event.event_id,
-                    event.time.isoformat() if isinstance(event.time, datetime) else str(event.time),
-                    event.duration,
-                    status_value,
-                    event.partner_agent_id,
-                    event.created_at.isoformat() if isinstance(event.created_at, datetime) else str(event.created_at),
-                    event.updated_at.isoformat() if isinstance(event.updated_at, datetime) else str(event.updated_at)
-                ))
-                
-                conn.commit()
-                return True
+            # Use explicit connection without context manager to ensure commit
+            conn = sqlite3.connect(abs_db_path)
+            cursor = conn.cursor()
+            
+            # Get status value (handle both enum and string)
+            status_value = event.status.value if hasattr(event.status, 'value') else str(event.status)
+            
+            cursor.execute("""
+                INSERT OR REPLACE INTO events 
+                (event_id, time, duration, status, partner_agent_id, title, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                event.event_id,
+                event.time.isoformat() if isinstance(event.time, datetime) else str(event.time),
+                event.duration,
+                status_value,
+                event.partner_agent_id,
+                getattr(event, 'title', None),
+                event.created_at.isoformat() if isinstance(event.created_at, datetime) else str(event.created_at),
+                event.updated_at.isoformat() if isinstance(event.updated_at, datetime) else str(event.updated_at)
+            ))
+            
+            # Explicitly commit
+            conn.commit()
+            
+            # Verify it's actually there
+            cursor.execute("SELECT event_id FROM events WHERE event_id = ?", (event.event_id,))
+            if not cursor.fetchone():
+                conn.close()
+                return False
+            
+            conn.close()
+            return True
         except Exception as e:
             print(f"🔍 DEBUG: Error saving event {event.event_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                conn.close()
+            except:
+                pass
             return False
     
-    def load_event(self, event_id: str, event_class):
+    def load_event(self, event_id: str, event_class, event_status_class=None):
         """Load a single event from the database.
-        
+
         Args:
             event_id: ID of the event to load
             event_class: Event class to instantiate
-            
+            event_status_class: Optional EventStatus enum class for status conversion
+
         Returns:
             Event object or None if not found
         """
+        import os
+        abs_db_path = os.path.abspath(self.db_path)
+
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(abs_db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 
@@ -119,10 +159,20 @@ class CalendarDBAdapter:
                 row = cursor.fetchone()
                 
                 if row:
-                    return self._row_to_event(row, event_class)
+                    print(f"🔍 DEBUG: Found row in database for event {event_id}, converting to event object...")
+                    event = self._row_to_event(row, event_class, event_status_class)
+                    if event:
+                        print(f"🔍 DEBUG: ✓ Successfully converted row to event {event_id}")
+                    else:
+                        print(f"🔍 DEBUG: ✗ Failed to convert row to event {event_id} (_row_to_event returned None)")
+                    return event
+                else:
+                    print(f"🔍 DEBUG: No row found in database for event {event_id}")
                 return None
         except Exception as e:
             print(f"🔍 DEBUG: Error loading event {event_id}: {e}")
+            import traceback
+            print(f"🔍 DEBUG: Traceback: {traceback.format_exc()}")
             return None
     
     def load_all_events(self, event_class, event_status_class):
@@ -135,22 +185,40 @@ class CalendarDBAdapter:
         Returns:
             List of Event objects
         """
+        import os
+        abs_db_path = os.path.abspath(self.db_path)
+        print(f"🔍 DEBUG: load_all_events() - Database path: {abs_db_path}")
+        print(f"🔍 DEBUG: load_all_events() - Database exists: {os.path.exists(abs_db_path)}")
+        
         events = []
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(abs_db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 
+                # First, count total rows
+                cursor.execute("SELECT COUNT(*) FROM events")
+                total_rows = cursor.fetchone()[0]
+                print(f"🔍 DEBUG: load_all_events() - Found {total_rows} rows in events table")
+                
                 cursor.execute("SELECT * FROM events ORDER BY time ASC")
                 rows = cursor.fetchall()
+                print(f"🔍 DEBUG: load_all_events() - Fetched {len(rows)} rows")
                 
-                for row in rows:
+                for idx, row in enumerate(rows):
+                    print(f"🔍 DEBUG: Processing row {idx+1}/{len(rows)}: event_id={row['event_id']}")
                     event = self._row_to_event(row, event_class, event_status_class)
                     if event:
                         events.append(event)
+                        print(f"🔍 DEBUG: ✓ Successfully loaded event {event.event_id}")
+                    else:
+                        print(f"🔍 DEBUG: ✗ Failed to convert row {idx+1} to event object")
         except Exception as e:
             print(f"🔍 DEBUG: Error loading all events: {e}")
+            import traceback
+            print(f"🔍 DEBUG: Traceback: {traceback.format_exc()}")
         
+        print(f"🔍 DEBUG: load_all_events() - Returning {len(events)} events")
         return events
     
     def _row_to_event(self, row, event_class, event_status_class=None):
@@ -188,12 +256,19 @@ class CalendarDBAdapter:
                     print(f"🔍 DEBUG: Could not convert status '{status_value}' to enum, keeping as string")
                     status = status_value
             
+            # Get title from database row (handle both dict and sqlite3.Row)
+            try:
+                event_title = row['title']
+            except (KeyError, IndexError):
+                event_title = None
+
             return event_class(
                 event_id=row['event_id'],
                 time=datetime.fromisoformat(row['time']),
                 duration=row['duration'],
                 status=status,
                 partner_agent_id=row['partner_agent_id'],
+                title=event_title,
                 created_at=datetime.fromisoformat(row['created_at']),
                 updated_at=datetime.fromisoformat(row['updated_at'])
             )
@@ -239,15 +314,16 @@ class CalendarDBAdapter:
                     status_value = event.status.value if hasattr(event.status, 'value') else str(event.status)
                     
                     cursor.execute("""
-                        INSERT OR REPLACE INTO events 
-                        (event_id, time, duration, status, partner_agent_id, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        INSERT OR REPLACE INTO events
+                        (event_id, time, duration, status, partner_agent_id, title, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         event.event_id,
                         event.time.isoformat() if isinstance(event.time, datetime) else str(event.time),
                         event.duration,
                         status_value,
                         event.partner_agent_id,
+                        getattr(event, 'title', None),
                         event.created_at.isoformat() if isinstance(event.created_at, datetime) else str(event.created_at),
                         event.updated_at.isoformat() if isinstance(event.updated_at, datetime) else str(event.updated_at)
                     ))

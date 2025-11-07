@@ -167,8 +167,10 @@ def login_page():
         st.query_params["book"] = "1"
         st.rerun()
 
-# Initialize database adapter
-DB_PATH = "calendar_agent.db"
+# Initialize database adapter - use absolute path to avoid path issues
+import os
+DB_PATH = os.path.abspath("calendar_agent.db")
+print(f"🔍 DEBUG: UI - Database path: {DB_PATH}")
 db_adapter = CalendarDBAdapter(db_path=DB_PATH)
 
 # Initialize session state - ensure calendar persists across reloads
@@ -292,8 +294,25 @@ def update_events_data():
         
         status_value = get_status_value(event.status)
         status_key = status_value.lower() if status_value else "proposed"
+        
+        # Use meeting title if available, otherwise use partner + status
+        event_title = getattr(event, 'title', None)
+        print(f"🔍 DEBUG: Event {event.event_id} - title attribute: {event_title}, type: {type(event_title)}")
+        print(f"🔍 DEBUG: Event {event.event_id} - hasattr('title'): {hasattr(event, 'title')}, dir includes 'title': {'title' in dir(event)}")
+        if hasattr(event, '__dict__'):
+            print(f"🔍 DEBUG: Event {event.event_id} - __dict__ keys: {list(event.__dict__.keys())}")
+        
+        if event_title:
+            # Show just the title in calendar (cleaner view)
+            event_title_display = event_title
+            print(f"🔍 DEBUG: Using title '{event_title}' for event {event.event_id}")
+        else:
+            # Fallback to partner + status if no title
+            event_title_display = f"{event.partner_agent_id} ({status_value})"
+            print(f"🔍 DEBUG: No title found for event {event.event_id}, using fallback: {event_title_display}")
+        
         event_data = {
-            "title": f"{event.partner_agent_id} ({status_value})",
+            "title": event_title_display,
             "start": event.time.isoformat(),
             "end": end_time.isoformat(),
             "color": color_map.get(status_key, "#757575"),
@@ -301,11 +320,12 @@ def update_events_data():
                 "event_id": event.event_id,
                 "partner": event.partner_agent_id,
                 "status": status_value,
-                "duration": event.duration
+                "duration": event.duration,
+                "title": event_title
             }
         }
         events.append(event_data)
-        print(f"🔍 DEBUG: Added event to UI data: {event.event_id} - {event.partner_agent_id} at {event.time.isoformat()}")
+        print(f"🔍 DEBUG: Added event to UI data: {event.event_id} - title: '{event_title_display}'")
     
     # Update session state with synchronized events
     st.session_state.events_data = events
@@ -330,6 +350,13 @@ def update_events_data():
 def booking_page():
     """Booking page accessible via /book route."""
     st.title("📅 Book a Meeting")
+    
+    # Show success message from previous booking if it exists (persists across rerun)
+    if 'last_booking_success' in st.session_state:
+        success_info = st.session_state.last_booking_success
+        st.success(f"✅ Meeting request submitted! Event ID: {success_info['event_id']}")
+        # Clear it after showing
+        del st.session_state.last_booking_success
     
     # Ensure calendar is properly initialized - load from database if needed
     if 'calendar' not in st.session_state or not isinstance(st.session_state.calendar, Calendar):
@@ -379,24 +406,42 @@ def booking_page():
         if booking_agent_did and partner_id == booking_agent_did:
             st.caption("✅ Using Calendar Booking Agent's DID")
         
+        # Initialize form state if not exists or if last booking was successful
+        if 'booking_form_date' not in st.session_state or st.session_state.get('last_booking_success'):
+            st.session_state.booking_form_date = datetime.now().date()
+            st.session_state.booking_form_time = datetime.now().time()
+            # Clear success flag after using it
+            if 'last_booking_success' in st.session_state:
+                del st.session_state.last_booking_success
+
         col1, col2 = st.columns(2)
         with col1:
             event_date = st.date_input(
                 "Preferred Date *",
-                value=datetime.now().date(),
-                min_value=datetime.now().date()
+                value=st.session_state.booking_form_date,
+                min_value=datetime.now().date(),
+                key="booking_date_input"
             )
+            st.session_state.booking_form_date = event_date
         with col2:
             event_time = st.time_input(
                 "Preferred Time *",
-                value=datetime.now().time()
+                value=st.session_state.booking_form_time,
+                key="booking_time_input"
             )
+            st.session_state.booking_form_time = event_time
         
         duration = st.selectbox(
             "Meeting Duration *",
             options=["15m", "30m", "45m", "1h", "1.5h", "2h"],
             index=1,
             help="Select the duration for the meeting"
+        )
+        
+        meeting_title = st.text_input(
+            "Meeting Title",
+            placeholder="e.g., Project Review, Team Sync, etc.",
+            help="Optional title for the meeting"
         )
         
         message = st.text_area(
@@ -408,35 +453,188 @@ def booking_page():
         submitted = st.form_submit_button("📅 Request Meeting", type="primary", use_container_width=True)
         
         if submitted:
+            # Log to file for debugging
+            import logging
+            from pathlib import Path
+            
+            # Setup file logger for booking page
+            booking_log_file = Path("/tmp/booking_page.log")
+            booking_logger = logging.getLogger("booking_page")
+            booking_logger.setLevel(logging.DEBUG)
+            
+            # Remove existing handlers to avoid duplicates
+            booking_logger.handlers = []
+            
+            # File handler
+            file_handler = logging.FileHandler(booking_log_file, mode='a')
+            file_handler.setLevel(logging.DEBUG)
+            file_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', datefmt='%H:%M:%S')
+            file_handler.setFormatter(file_formatter)
+            booking_logger.addHandler(file_handler)
+            
+            # Console handler with flush
+            import sys
+            console_handler = logging.StreamHandler(sys.stderr)
+            console_handler.setLevel(logging.DEBUG)
+            console_formatter = logging.Formatter('[BookingPage] %(message)s')
+            console_handler.setFormatter(console_formatter)
+            booking_logger.addHandler(console_handler)
+            
+            booking_logger.info("="*80)
+            booking_logger.info("📅 BOOKING FORM SUBMITTED")
+            booking_logger.info(f"partner_id={partner_id}, date={event_date}, time={event_time}")
+            booking_logger.info("="*80)
+            print(f"🔍 DEBUG: Form submitted! partner_id={partner_id}, date={event_date}, time={event_time}", flush=True)
+            
             if not partner_id:
                 st.error("❌ Please enter your Agent ID")
             else:
                 try:
+                    booking_logger.info("Starting event creation...")
+                    print(f"🔍 DEBUG: Starting event creation...", flush=True)
                     event_datetime = datetime.combine(event_date, event_time)
-                    
+                    booking_logger.info(f"Combined datetime: {event_datetime}")
+                    print(f"🔍 DEBUG: Combined datetime: {event_datetime}", flush=True)
+
+                    # CRITICAL: Sync calendar from database FIRST to avoid phantom conflicts
+                    # This ensures we're working with the actual saved events, not stale in-memory ones
+                    booking_logger.info("Syncing calendar from database before creating event...")
+                    print(f"🔍 DEBUG: Syncing calendar from database...", flush=True)
+                    try:
+                        saved_events = db_adapter.load_all_events(Event, EventStatus)
+                        st.session_state.calendar.events = {}  # Clear in-memory events
+                        for saved_event in saved_events:
+                            st.session_state.calendar.events[saved_event.event_id] = saved_event
+                        booking_logger.info(f"Synced {len(saved_events)} events from database")
+                        print(f"🔍 DEBUG: Synced {len(saved_events)} events from database", flush=True)
+                    except Exception as sync_err:
+                        booking_logger.warning(f"Could not sync from database: {sync_err}")
+                        print(f"🔍 DEBUG: WARNING - Could not sync from database: {sync_err}", flush=True)
+
                     # Check preferences before proposing
                     prefs = st.session_state.preferences
                     matches_prefs = prefs.is_preferred_time(event_datetime)
-                    
-                    # Create the event
+                    booking_logger.info(f"Preferences check: matches={matches_prefs}")
+                    print(f"🔍 DEBUG: Preferences check: matches={matches_prefs}", flush=True)
+
+                    # Create the event with title
+                    booking_logger.info("Calling propose_event...")
+                    print(f"🔍 DEBUG: Calling propose_event...", flush=True)
                     event = st.session_state.calendar.propose_event(
                         time=event_datetime,
                         duration=duration,
-                        partner_agent_id=partner_id
+                        partner_agent_id=partner_id,
+                        title=meeting_title if meeting_title else None
                     )
+                    booking_logger.info(f"✓ Event created: {event.event_id}")
+                    booking_logger.info(f"Event title: {getattr(event, 'title', None)}")
+                    print(f"🔍 DEBUG: ✓ Event created: {event.event_id}", flush=True)
+                    print(f"🔍 DEBUG: Event title: {getattr(event, 'title', None)}", flush=True)
+                    print(f"🔍 DEBUG: Event is in calendar: {event.event_id in st.session_state.calendar.events}", flush=True)
+                    print(f"🔍 DEBUG: Calendar has {len(st.session_state.calendar.events)} events before save", flush=True)
                     
-                    st.success("✅ Meeting request submitted!")
+                    # Verify event is in calendar
+                    if event.event_id not in st.session_state.calendar.events:
+                        booking_logger.error(f"Event {event.event_id} was not added to calendar!")
+                        st.error(f"❌ Event {event.event_id} was not added to calendar!")
+                        print(f"🔍 DEBUG: ERROR - Event not in calendar after propose_event()", flush=True)
+                        raise Exception(f"Event {event.event_id} was not added to calendar")
+                    
+                    booking_logger.info("✓ Event confirmed in calendar")
+                    print(f"🔍 DEBUG: ✓ Event confirmed in calendar", flush=True)
+                    
+                    # Save to database FIRST
+                    booking_logger.info(f"Saving to database NOW... {event.event_id} {event.title}")
+                    print(f"🔍 DEBUG: Saving to database...", flush=True)
+                    save_success = db_adapter.save_event(event)
+                    booking_logger.info(f"Event saved to database: {save_success}")
+                    if not save_success:
+                        booking_logger.error(f"Failed to save event {event.event_id} to database")
+                        st.error(f"❌ Failed to save event to database. Event ID: {event.event_id}")
+                        print(f"🔍 DEBUG: ERROR - Database save failed", flush=True)
+                        raise Exception(f"Failed to save event {event.event_id} to database")
+                    
+                    booking_logger.info(f"✓ Saved event {event.event_id} to database")
+                    print(f"🔍 DEBUG: ✓ Saved event {event.event_id} to database", flush=True)
+                    
+                    # Verify event can be loaded back from database
+                    loaded_event = db_adapter.load_event(event.event_id, Event, EventStatus)
+                    if loaded_event:
+                        booking_logger.info(f"✓ Verified event in database - title: {getattr(loaded_event, 'title', None)}")
+                        print(f"🔍 DEBUG: ✓ Verified event in database - title: {getattr(loaded_event, 'title', None)}", flush=True)
+                    else:
+                        booking_logger.warning(f"Event {event.event_id} not found in database after saving")
+                        st.warning(f"⚠️ Event {event.event_id} not found in database after saving (may still be processing)")
+                        print(f"🔍 DEBUG: WARNING - Event not immediately loadable from database", flush=True)
+                    
+                    # Explicitly sync calendar from database to ensure new event is included
+                    booking_logger.info("Syncing calendar from database...")
+                    print(f"🔍 DEBUG: Syncing calendar from database...", flush=True)
+                    try:
+                        saved_events = db_adapter.load_all_events(Event, EventStatus)
+                        booking_logger.info(f"Loaded {len(saved_events)} events from database")
+                        print(f"🔍 DEBUG: Loaded {len(saved_events)} events from database", flush=True)
+                        
+                        # Verify the new event is in the loaded events
+                        event_found_in_db = any(e.event_id == event.event_id for e in saved_events)
+                        if not event_found_in_db:
+                            booking_logger.error(f"CRITICAL: New event {event.event_id} NOT found in database after save!")
+                            print(f"🔍 DEBUG: CRITICAL - Event {event.event_id} NOT in loaded events!", flush=True)
+                            st.error(f"⚠️ Warning: Event was saved but not immediately found in database. This may be a timing issue.")
+                        else:
+                            booking_logger.info(f"✓ Verified new event {event.event_id} is in database")
+                            print(f"🔍 DEBUG: ✓ Verified new event {event.event_id} is in database", flush=True)
+                        
+                        # Update calendar with all events from database
+                        for saved_event in saved_events:
+                            # Ensure status is properly set
+                            if isinstance(saved_event.status, str) and hasattr(EventStatus, saved_event.status.upper()):
+                                try:
+                                    saved_event.status = EventStatus[saved_event.status.upper()]
+                                except Exception as e:
+                                    booking_logger.warning(f"Could not convert status for event {saved_event.event_id}: {e}")
+                                    pass
+                            # Add or update event in calendar
+                            st.session_state.calendar.events[saved_event.event_id] = saved_event
+                            booking_logger.info(f"Added/updated event {saved_event.event_id} in calendar")
+                        
+                        booking_logger.info(f"Calendar now has {len(st.session_state.calendar.events)} events")
+                        print(f"🔍 DEBUG: Calendar now has {len(st.session_state.calendar.events)} events after sync", flush=True)
+                    except Exception as sync_error:
+                        booking_logger.error(f"Error syncing calendar from database: {sync_error}", exc_info=True)
+                        print(f"🔍 DEBUG: ERROR syncing calendar: {sync_error}", flush=True)
+                        import traceback
+                        traceback.print_exc()
+                        st.error(f"❌ Error syncing calendar from database: {str(sync_error)}")
+                        st.code(traceback.format_exc())
+                        # Don't rerun if there's an error - let user see it
+                        return
                     
                     # Refresh calendar to show new event
-                    refresh_calendar()
+                    booking_logger.info("Refreshing calendar UI...")
+                    print(f"🔍 DEBUG: Refreshing calendar UI...", flush=True)
+                    try:
+                        refresh_calendar()
+                        booking_logger.info(f"After refresh, events_data has {len(st.session_state.get('events_data', []))} events")
+                        print(f"🔍 DEBUG: After refresh, events_data has {len(st.session_state.get('events_data', []))} events", flush=True)
+                    except Exception as refresh_error:
+                        booking_logger.error(f"Error refreshing calendar: {refresh_error}", exc_info=True)
+                        print(f"🔍 DEBUG: ERROR refreshing calendar: {refresh_error}", flush=True)
+                        import traceback
+                        traceback.print_exc()
+                        st.error(f"❌ Error refreshing calendar: {str(refresh_error)}")
+                        st.code(traceback.format_exc())
+                        # Don't rerun if there's an error - let user see it
+                        return
                     
-                    # Save to database
-                    db_adapter.save_event(event)
-                    print(f"🔍 DEBUG: Saved event {event.event_id} from booking page to database")
+                    # Show success message
+                    booking_logger.info("✅ Meeting request submitted successfully!")
+                    st.success("✅ Meeting request submitted!")
                     
                     # Display event details
+                    title_display = f"**Title:** {meeting_title}\n" if meeting_title else ""
                     st.info(f"""
-                    **Event ID:** `{event.event_id}`  
+                    {title_display}**Event ID:** `{event.event_id}`  
                     **Time:** {event_datetime.strftime('%Y-%m-%d %H:%M')}  
                     **Duration:** {duration}  
                     **Status:** {get_status_value(event.status)}
@@ -447,8 +645,50 @@ def booking_page():
                     if not matches_prefs:
                         st.warning(f"⚠️ Note: This time may not match the agent's preferred schedule ({prefs.preferred_start_hour}:00-{prefs.preferred_end_hour}:00 on {', '.join(prefs.preferred_days)})")
                     
+                    # Show log file viewer
+                    st.markdown("---")
+                    st.subheader("📋 Booking Logs")
+                    log_file_path = Path("/tmp/booking_page.log")
+                    if log_file_path.exists():
+                        with open(log_file_path, 'r') as f:
+                            log_content = f.read()
+                            if log_content.strip():
+                                st.code(log_content, language='text')
+                            else:
+                                st.info("Log file is empty")
+                    else:
+                        st.info("Log file not found")
+                    
+                    # Store success state in session to persist across rerun
+                    st.session_state.last_booking_success = {
+                        'event_id': event.event_id,
+                        'time': event_datetime.isoformat(),
+                        'title': meeting_title
+                    }
+                    
+                    # Force UI refresh to clear form state and show updated calendar
+                    booking_logger.info("Calling st.rerun() to refresh UI...")
+                    print(f"🔍 DEBUG: Calling st.rerun() to refresh UI...", flush=True)
+                    st.rerun()
+                    
                 except ValueError as e:
-                    st.error(f"❌ Error: {str(e)}")
+                    error_msg = f"❌ Validation Error: {str(e)}"
+                    booking_logger.error(f"ValueError: {e}", exc_info=True)
+                    st.error(error_msg)
+                    print(f"🔍 DEBUG: ValueError caught: {e}", flush=True)
+                    import traceback
+                    traceback_str = traceback.format_exc()
+                    print(f"🔍 DEBUG: Traceback:\n{traceback_str}", flush=True)
+                    st.code(traceback_str)
+                except Exception as e:
+                    error_msg = f"❌ Unexpected error: {str(e)}"
+                    booking_logger.error(f"Exception: {e}", exc_info=True)
+                    st.error(error_msg)
+                    print(f"🔍 DEBUG: Exception caught: {e}", flush=True)
+                    import traceback
+                    traceback_str = traceback.format_exc()
+                    print(f"🔍 DEBUG: Traceback:\n{traceback_str}", flush=True)
+                    st.code(traceback_str)
     
     # Booking Links section
     st.markdown("---")
@@ -2875,11 +3115,18 @@ Examples:
     if display_events:
         for event in display_events:
             event_status = get_status_value(event.status)
-            with st.expander(
-                f"{event.time.strftime('%Y-%m-%d %H:%M')} - {event.partner_agent_id} ({event_status})"
-            ):
+            # Use title as main text, fallback to partner + status if no title
+            event_title = getattr(event, 'title', None)
+            if event_title:
+                event_display_text = f"{event_title} - {event.time.strftime('%Y-%m-%d %H:%M')} ({event_status})"
+            else:
+                event_display_text = f"{event.partner_agent_id} - {event.time.strftime('%Y-%m-%d %H:%M')} ({event_status})"
+            
+            with st.expander(event_display_text):
                 col1, col2 = st.columns([3, 1])
                 with col1:
+                    if event_title:
+                        st.write(f"**Title:** {event_title}")
                     st.write(f"**Event ID:** `{event.event_id}`")
                     st.write(f"**Partner:** {event.partner_agent_id}")
                     st.write(f"**Status:** {event_status}")
