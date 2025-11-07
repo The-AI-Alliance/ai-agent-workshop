@@ -172,9 +172,7 @@ async def send_message_to_a2a_agent(
     expected_card_url = f"{endpoint_url.rstrip('/')}/.well-known/agent-card.json"
     logger.info(f"📋 Agent card will be fetched from: {expected_card_url}")
     
-    # Use 12s timeout (slightly more than 10s to allow for network overhead)
-    # This ensures asyncio.wait_for(10s) can properly cancel the operation
-    async with httpx.AsyncClient(timeout=12.0) as httpx_client:
+    async with httpx.AsyncClient(timeout=60.0) as httpx_client:
         card_resolver = A2ACardResolver(httpx_client, endpoint_url)
         agent_card = await card_resolver.get_agent_card()
         logger.info(f"✅ Agent card fetched: {agent_card.name if hasattr(agent_card, 'name') else 'unknown'}")
@@ -230,29 +228,25 @@ async def send_message_to_a2a_agent(
             logger.info("="*70)
             
             chunk_count = 0
-            try:
-                async for chunk in response_stream:
-                    # Allow cancellation point - check if we've been cancelled
-                    await asyncio.sleep(0)  # Yield to event loop for cancellation
-                    
-                    # Store raw chunk for debugging
-                    try:
-                        if hasattr(chunk, 'model_dump'):
-                            raw_chunks_debug.append({
-                                'type': type(chunk).__name__,
-                                'data': chunk.model_dump()
-                            })
-                        else:
-                            raw_chunks_debug.append({
-                                'type': type(chunk).__name__,
-                                'data': str(chunk)[:500]
-                            })
-                    except:
+            async for chunk in response_stream:
+                # Store raw chunk for debugging
+                try:
+                    if hasattr(chunk, 'model_dump'):
                         raw_chunks_debug.append({
                             'type': type(chunk).__name__,
-                            'data': 'Could not serialize'
+                            'data': chunk.model_dump()
                         })
-                    chunk_count += 1
+                    else:
+                        raw_chunks_debug.append({
+                            'type': type(chunk).__name__,
+                            'data': str(chunk)[:500]
+                        })
+                except:
+                    raw_chunks_debug.append({
+                        'type': type(chunk).__name__,
+                        'data': 'Could not serialize'
+                    })
+                chunk_count += 1
                 
                 # Print to stderr so it shows in Streamlit
                 import sys
@@ -312,103 +306,49 @@ async def send_message_to_a2a_agent(
                 except Exception as e:
                     logger.error(f"❌ Could not convert chunk to dict: {e}")
                 
-                # Extract result from the chunk
-                # Based on debug file: SendStreamingMessageResponse has chunk.data.result structure
-                # Priority 1: Try chunk.data.result (SendStreamingMessageResponse structure)
-                if not result_data:
-                    if hasattr(chunk, 'data'):
-                        logger.info(f"🔍 chunk.data type: {type(chunk.data)}")
-                        print(f"🔍 chunk.data type: {type(chunk.data)}", file=sys.stderr)
-                        
-                        # Convert chunk.data to dict if it's a Pydantic model
-                        chunk_data = chunk.data
-                        if not isinstance(chunk_data, dict) and hasattr(chunk_data, 'model_dump'):
-                            try:
-                                chunk_data = chunk_data.model_dump()
-                                logger.info(f"✅ Converted chunk.data to dict")
-                                print(f"✅ Converted chunk.data to dict", file=sys.stderr)
-                            except Exception as e:
-                                logger.warning(f"⚠️ Could not convert chunk.data to dict: {e}")
-                        
-                        # Now try to get result from chunk_data
-                        if isinstance(chunk_data, dict) and 'result' in chunk_data:
-                            result_data = chunk_data['result']
-                            logger.info(f"✅ Got result_data from chunk.data['result']")
-                            print(f"✅ Got result_data from chunk.data['result']", file=sys.stderr)
-                        elif hasattr(chunk_data, 'result'):
-                            result_data = chunk_data.result
-                            logger.info(f"✅ Got result_data from chunk.data.result")
-                            print(f"✅ Got result_data from chunk.data.result", file=sys.stderr)
-                
-                # Priority 2: Try chunk_dict['data']['result'] (from model_dump)
-                if not result_data and chunk_dict:
+                # Extract result from the dict
+                if chunk_dict:
                     if 'data' in chunk_dict and isinstance(chunk_dict['data'], dict):
                         if 'result' in chunk_dict['data']:
                             result_data = chunk_dict['data']['result']
                             logger.info(f"✅ Got result_data from chunk_dict['data']['result']")
-                            print(f"✅ Got result_data from chunk_dict['data']['result']", file=sys.stderr)
-                
-                # Priority 3: Try chunk.result directly (fallback)
-                if not result_data and hasattr(chunk, 'result'):
-                    result_data = chunk.result
-                    logger.info(f"✅ Got result_data from chunk.result (direct access)")
-                    print(f"✅ Got result_data from chunk.result", file=sys.stderr)
-                
-                # Priority 4: Try chunk_dict['result'] (from model_dump, top-level)
-                if not result_data and chunk_dict:
-                    if 'result' in chunk_dict:
+                    elif 'result' in chunk_dict:
                         result_data = chunk_dict['result']
                         logger.info(f"✅ Got result_data from chunk_dict['result']")
-                        print(f"✅ Got result_data from chunk_dict['result']", file=sys.stderr)
                 
-                # Priority 5: Try dict access directly
-                if not result_data and isinstance(chunk, dict) and 'result' in chunk:
-                    result_data = chunk['result']
-                    logger.info(f"✅ Got result_data from chunk['result'] (direct dict)")
-                    print(f"✅ Got result_data from chunk['result']", file=sys.stderr)
+                # Old approach as fallback
+                if not result_data:
+                    # Try to get result from chunk.data.result (as seen in debug file)
+                    if hasattr(chunk, 'data'):
+                        logger.info(f"🔍 chunk.data type: {type(chunk.data)}")
+                        logger.info(f"🔍 chunk.data has 'result': {hasattr(chunk.data, 'result')}")
+                        
+                        if hasattr(chunk.data, 'result'):
+                            result_data = chunk.data.result
+                            logger.info(f"✅ Got result_data from chunk.data.result")
+                        elif isinstance(chunk.data, dict) and 'result' in chunk.data:
+                            result_data = chunk.data['result']
+                            logger.info(f"✅ Got result_data from chunk.data['result']")
+                    
+                    # Fallback: try chunk.result directly
+                    if not result_data and hasattr(chunk, 'result'):
+                        result_data = chunk.result
+                        logger.info(f"✅ Got result_data from chunk.result")
+                    
+                    # Fallback: try dict access
+                    if not result_data and isinstance(chunk, dict) and 'result' in chunk:
+                        result_data = chunk['result']
+                        logger.info(f"✅ Got result_data from chunk['result']")
                 
                 if result_data:
                     logger.info(f"🎯 result_data type: {type(result_data)}")
                     logger.info(f"🎯 result_data has 'kind': {hasattr(result_data, 'kind')}")
-                    print(f"🎯 result_data type: {type(result_data)}", file=sys.stderr)
-                    print(f"🎯 result_data has 'kind': {hasattr(result_data, 'kind')}", file=sys.stderr)
-                    # Try to get kind value for debugging
-                    try:
-                        if isinstance(result_data, dict):
-                            kind_val = result_data.get('kind', 'NOT_FOUND')
-                        else:
-                            kind_val = getattr(result_data, 'kind', 'NOT_FOUND')
-                        logger.info(f"🎯 result_data.kind = {kind_val}")
-                        print(f"🎯 result_data.kind = {kind_val}", file=sys.stderr)
-                    except:
-                        pass
                 else:
                     logger.warning(f"❌ Could not extract result_data from chunk!")
-                    print(f"❌ Could not extract result_data from chunk!", file=sys.stderr)
-                    # Debug: show what chunk actually has
-                    if chunk_dict:
-                        logger.warning(f"🔍 chunk_dict keys: {list(chunk_dict.keys())}")
-                        print(f"🔍 chunk_dict keys: {list(chunk_dict.keys())}", file=sys.stderr)
-                    if hasattr(chunk, '__dict__'):
-                        logger.warning(f"🔍 chunk attributes: {list(chunk.__dict__.keys())}")
-                        print(f"🔍 chunk attributes: {list(chunk.__dict__.keys())}", file=sys.stderr)
-                
-                # Flag to skip old parsing logic if we processed result_data
-                processed_result_data = False
                 
                 if result_data:
                     print(f"✅ Found result_data, checking kind...", file=sys.stderr)
                     logger.info(f"✅ Found result_data, checking kind...")
-                    
-                    # Convert Pydantic model to dict for consistent access
-                    if not isinstance(result_data, dict) and hasattr(result_data, 'model_dump'):
-                        try:
-                            result_data = result_data.model_dump()
-                            logger.info(f"✅ Converted result_data Pydantic model to dict")
-                            print(f"✅ Converted result_data to dict", file=sys.stderr)
-                        except Exception as e:
-                            logger.warning(f"⚠️ Could not convert result_data to dict: {e}")
-                            # Fall back to object access
                     
                     # Get the 'kind' field to determine what type of event this is
                     event_kind = result_data.get('kind') if isinstance(result_data, dict) else getattr(result_data, 'kind', None)
@@ -420,90 +360,30 @@ async def send_message_to_a2a_agent(
                         print(f"   📦 Processing artifact-update", file=sys.stderr)
                         logger.info(f"   📦 Processing artifact-update")
                         
-                        # Extract artifact - now result_data should be a dict
                         artifact = result_data.get('artifact') if isinstance(result_data, dict) else getattr(result_data, 'artifact', None)
-                        
-                        # Convert artifact to dict if it's a Pydantic model
-                        if artifact and not isinstance(artifact, dict) and hasattr(artifact, 'model_dump'):
-                            try:
-                                artifact = artifact.model_dump()
-                                logger.info(f"✅ Converted artifact Pydantic model to dict")
-                                print(f"✅ Converted artifact to dict", file=sys.stderr)
-                            except Exception as e:
-                                logger.warning(f"⚠️ Could not convert artifact to dict: {e}")
-                        print(f"   🔍 Artifact extracted: {artifact is not None}, type: {type(artifact)}", file=sys.stderr)
-                        logger.info(f"   🔍 Artifact extracted: {artifact is not None}, type: {type(artifact)}")
                         
                         if artifact:
                             logger.info(f"   Found artifact: {type(artifact)}")
-                            print(f"   ✅ Found artifact: {type(artifact)}", file=sys.stderr)
-                            
-                            # Debug: show artifact structure
-                            if isinstance(artifact, dict):
-                                logger.info(f"   🔍 Artifact keys: {list(artifact.keys())}")
-                                print(f"   🔍 Artifact keys: {list(artifact.keys())}", file=sys.stderr)
-                            elif hasattr(artifact, '__dict__'):
-                                logger.info(f"   🔍 Artifact attributes: {list(artifact.__dict__.keys())}")
-                                print(f"   🔍 Artifact attributes: {list(artifact.__dict__.keys())}", file=sys.stderr)
-                            
                             parts = artifact.get('parts') if isinstance(artifact, dict) else getattr(artifact, 'parts', None)
-                            print(f"   🔍 Parts extracted: {parts is not None}, type: {type(parts)}, length: {len(parts) if parts else 0}", file=sys.stderr)
-                            logger.info(f"   🔍 Parts extracted: {parts is not None}, type: {type(parts)}, length: {len(parts) if parts else 0}")
-                            
-                            # Convert parts list items to dicts if they're Pydantic models
-                            if parts:
-                                converted_parts = []
-                                for part in parts:
-                                    if not isinstance(part, dict) and hasattr(part, 'model_dump'):
-                                        try:
-                                            converted_parts.append(part.model_dump())
-                                        except:
-                                            converted_parts.append(part)  # Fallback to original
-                                    else:
-                                        converted_parts.append(part)
-                                parts = converted_parts
-                                logger.info(f"✅ Converted {len(parts)} parts to dicts")
-                                print(f"✅ Converted {len(parts)} parts to dicts", file=sys.stderr)
                             
                             if parts:
                                 print(f"   Found {len(parts)} parts in artifact", file=sys.stderr)
                                 logger.info(f"   Found {len(parts)} parts in artifact")
                                 
                                 for i, part in enumerate(parts):
-                                    # Debug part structure
-                                    print(f"   🔍 Part {i} type: {type(part)}", file=sys.stderr)
-                                    if isinstance(part, dict):
-                                        print(f"   🔍 Part {i} keys: {list(part.keys())}", file=sys.stderr)
-                                    elif hasattr(part, '__dict__'):
-                                        print(f"   🔍 Part {i} attributes: {list(part.__dict__.keys())}", file=sys.stderr)
-                                    
                                     part_kind = part.get('kind') if isinstance(part, dict) else getattr(part, 'kind', None)
                                     logger.info(f"   Part {i} kind: {part_kind}")
-                                    print(f"   Part {i} kind: {part_kind}", file=sys.stderr)
-                                    print(f"   Part {i} full: {part}", file=sys.stderr)
+                                    print(f"   Part {i}: {part}", file=sys.stderr)
                                     
                                     # Handle kind="text" - extract from 'text' field
-                                    # Parts should now be dicts after conversion above
                                     if part_kind == 'text':
-                                        # Prioritize dict access since we converted to dicts
-                                        if isinstance(part, dict):
-                                            text_value = part.get('text')
-                                        else:
-                                            text_value = getattr(part, 'text', None)
-                                        
-                                        print(f"   🔍 Part {i} text_value: {text_value is not None}, value: {text_value[:100] if text_value else 'None'}...", file=sys.stderr)
-                                        logger.info(f"   🔍 Part {i} text_value extracted: {text_value is not None}")
-                                        
+                                        text_value = part.get('text') if isinstance(part, dict) else getattr(part, 'text', None)
                                         if text_value:
-                                            response_text += str(text_value)  # Ensure it's a string
+                                            response_text += text_value
                                             print(f"   ✅ Extracted TEXT from part {i}: {text_value[:100]}...", file=sys.stderr)
-                                            logger.info(f"   ✅ Extracted TEXT from part {i}: {len(str(text_value))} chars")
+                                            logger.info(f"   ✅ Extracted TEXT from part {i}: {len(text_value)} chars")
                                         else:
                                             logger.warning(f"   ⚠️ Part {i} kind='text' but no text value found")
-                                            print(f"   ⚠️ Part {i} kind='text' but no text value found", file=sys.stderr)
-                                            # Debug: show what part actually contains
-                                            logger.warning(f"   🔍 Part {i} full contents: {part}")
-                                            print(f"   🔍 Part {i} full contents: {part}", file=sys.stderr)
                                     
                                     # Handle kind="data" - extract from 'data.question' or 'data.message' field
                                     elif part_kind == 'data':
@@ -571,12 +451,10 @@ async def send_message_to_a2a_agent(
                     else:
                         print(f"   ⚠️ Unknown event kind: {event_kind}", file=sys.stderr)
                     
-                    # Mark that we processed result_data, so skip old parsing logic
-                    processed_result_data = True
+                    continue  # Skip the old parsing logic below
                 
                 # OLD LOGIC (fallback) - Handle streaming response - chunk is SendStreamingMessageResponse
-                # Only use this if we didn't already process result_data above
-                if not processed_result_data and hasattr(chunk, 'root') and isinstance(chunk.root, SendStreamingMessageSuccessResponse):
+                if hasattr(chunk, 'root') and isinstance(chunk.root, SendStreamingMessageSuccessResponse):
                     print(f"✅ [FALLBACK] Chunk has .root with SendStreamingMessageSuccessResponse", file=sys.stderr)
                     event = chunk.root.result
                     
@@ -760,19 +638,6 @@ async def send_message_to_a2a_agent(
                     except Exception as e:
                         logger.error(f"Error parsing chunk directly: {e}")
                         print(f"❌ Error parsing chunk: {e}", file=sys.stderr)
-            except asyncio.CancelledError:
-                logger.warning("⚠️ Streaming cancelled due to timeout")
-                logger.info(f"📊 Partial response captured: {len(response_text)} characters")
-                if response_text:
-                    logger.info(f"📝 Partial response: {response_text[:200]}...")
-                # Re-raise to allow asyncio.wait_for to handle it properly
-                raise
-            except Exception as e:
-                logger.error(f"❌ Error during streaming: {e}", exc_info=True)
-                # If we have partial response, log it
-                if response_text:
-                    logger.info(f"📊 Partial response before error: {len(response_text)} characters")
-                raise
         else:
             # Use non-streaming
             request = SendMessageRequest(
