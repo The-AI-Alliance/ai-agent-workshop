@@ -10,8 +10,34 @@ import logging
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+
+# Configure dedicated file logger for booking automation
+booking_log_file = Path("/tmp/booking_automation.log")
+file_handler = logging.FileHandler(booking_log_file, mode='w')  # Overwrite each run
+file_handler.setLevel(logging.DEBUG)
+file_formatter = logging.Formatter(
+    '%(asctime)s - [%(levelname)s] - %(message)s',
+    datefmt='%H:%M:%S'
+)
+file_handler.setFormatter(file_formatter)
 
 logger = logging.getLogger(__name__)
+logger.addHandler(file_handler)
+logger.setLevel(logging.DEBUG)
+
+# Also log to console with flush
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)
+console_formatter = logging.Formatter('[BookingAutomation] %(message)s')
+console_handler.setFormatter(console_formatter)
+logger.addHandler(console_handler)
+
+# Log to file immediately on module load
+logger.info("="*80)
+logger.info("📋 BOOKING AUTOMATION MODULE LOADED")
+logger.info(f"📁 Log file: {booking_log_file}")
+logger.info("="*80)
 
 
 @dataclass
@@ -115,27 +141,27 @@ class BookingAutomation:
                 - conversation_history: List[ConversationTurn]
                 - booking_details: Optional[Dict]
         """
-        print("\n" + "="*80)
-        print("[BookingAutomation] 🎯 book_meeting() FUNCTION CALLED!")
-        print("="*80)
-        print(f"[BookingAutomation] Parameters received:")
-        print(f"  - target_agent_endpoint: {target_agent_endpoint}")
-        print(f"  - target_agent_did: {target_agent_did}")
-        print(f"  - preferences: {preferences}")
-        print(f"  - booking_agent: {booking_agent}")
-        print(f"  - progress_callback: {progress_callback}")
+        logger.info("="*80)
+        logger.info("🎯 book_meeting() FUNCTION CALLED!")
+        logger.info("="*80)
+        logger.info("Parameters received:")
+        logger.info(f"  - target_agent_endpoint: {target_agent_endpoint}")
+        logger.info(f"  - target_agent_did: {target_agent_did}")
+        logger.info(f"  - preferences: {preferences}")
+        logger.info(f"  - booking_agent: {booking_agent}")
+        logger.info(f"  - progress_callback: {progress_callback}")
         
         logger.info(f"Starting automated booking flow with {target_agent_endpoint}")
         logger.info(f"Using BookingAgent: {booking_agent.agent_name}")
-        print(f"[BookingAutomation] ✓ Logger statements executed")
+        logger.info(f"✓ Logger statements executed")
         
         # Import here to avoid circular dependencies
-        print(f"[BookingAutomation] Importing send_message_to_a2a_agent...")
+        logger.info(f"Importing send_message_to_a2a_agent...")
         try:
             from a2a_client.client import send_message_to_a2a_agent
-            print(f"[BookingAutomation] ✓ Successfully imported send_message_to_a2a_agent")
+            logger.info(f"✓ Successfully imported send_message_to_a2a_agent")
         except ImportError as e:
-            print(f"[BookingAutomation] ❌ Failed to import: {e}")
+            logger.info(f"❌ Failed to import: {e}")
             logger.error(f"Failed to import A2A client: {e}")
             return {
                 'success': False,
@@ -145,33 +171,33 @@ class BookingAutomation:
             }
         
         # Build the context for the booking agent
-        print(f"[BookingAutomation] Building booking context...")
+        logger.info(f"Building booking context...")
         booking_context = self._build_booking_context(preferences, target_agent_did)
-        print(f"[BookingAutomation] ✓ Booking context built")
+        logger.info(f"✓ Booking context built")
         
-        print(f"[BookingAutomation] Checking if progress_callback is provided...")
+        logger.info(f"Checking if progress_callback is provided...")
         if progress_callback:
-            print(f"[BookingAutomation] Calling progress_callback(0, 'starting', ...)...")
+            logger.info(f"Calling progress_callback(0, 'starting', ...)...")
             await progress_callback(0, "starting", "Initiating AI-powered booking...")
-            print(f"[BookingAutomation] ✓ progress_callback completed")
+            logger.info(f"✓ progress_callback completed")
         else:
-            print(f"[BookingAutomation] No progress_callback provided")
+            logger.info(f"No progress_callback provided")
         
         # Initialize booking agent if needed
-        print(f"[BookingAutomation] Checking if booking agent needs initialization...")
-        print(f"[BookingAutomation] booking_agent.agent = {booking_agent.agent}")
+        logger.info(f"Checking if booking agent needs initialization...")
+        logger.info(f"booking_agent.agent = {booking_agent.agent}")
         if not booking_agent.agent:
-            print(f"[BookingAutomation] Booking agent needs initialization")
+            logger.info(f"Booking agent needs initialization")
             if progress_callback:
                 await progress_callback(0, "initializing", "Initializing booking agent...")
             
             try:
                 # Add timeout to prevent hanging
                 logger.info("Initializing booking agent with 30s timeout...")
-                print(f"[BookingAutomation] Calling booking_agent.init_agent() with 30s timeout...")
+                logger.info(f"Calling booking_agent.init_agent() with 30s timeout...")
                 await asyncio.wait_for(booking_agent.init_agent(), timeout=30.0)
                 logger.info("Booking agent initialized successfully")
-                print(f"[BookingAutomation] ✅ Booking agent initialized successfully")
+                logger.info(f"✅ Booking agent initialized successfully")
             except asyncio.TimeoutError:
                 error_msg = "Booking agent initialization timed out after 30 seconds. Check MCP server connection."
                 logger.error(error_msg)
@@ -191,17 +217,17 @@ class BookingAutomation:
                     'booking_details': None
                 }
         else:
-            print(f"[BookingAutomation] ✓ Booking agent already initialized, skipping init")
+            logger.info(f"✓ Booking agent already initialized, skipping init")
         
         # Conversation loop - BookingAgent talks to target agent
-        print(f"[BookingAutomation] Building conversation context...")
+        logger.info(f"Building conversation context...")
         conversation_context = f"{booking_context}\n\nTarget Agent A2A Endpoint: {target_agent_endpoint}\nTarget Agent DID: {target_agent_did}"
-        print(f"[BookingAutomation] ✓ Conversation context built")
-        print(f"[BookingAutomation] 🔄 ENTERING MAIN CONVERSATION LOOP (max_turns={self.max_turns})...")
+        logger.info(f"✓ Conversation context built")
+        logger.info(f"🔄 ENTERING MAIN CONVERSATION LOOP (max_turns={self.max_turns})...")
         
         for turn in range(1, self.max_turns + 1):
             self.current_turn = turn
-            print(f"\n[BookingAutomation] ========== STARTING TURN {turn}/{self.max_turns} ==========")
+            logger.info(f"========== STARTING TURN {turn}/{self.max_turns} ==========")
             
             try:
                 # Ask booking agent to formulate the message
@@ -211,27 +237,27 @@ class BookingAutomation:
                         "thinking",
                         f"Turn {turn}/{self.max_turns}: Booking agent is analyzing..."
                     )
-                print(f"[BookingAutomation] Turn {turn}: Progress callback done, building prompt...")
+                logger.info(f"Turn {turn}: Progress callback done, building prompt...")
                 
                 # Build prompt for booking agent
                 agent_prompt = self._build_agent_prompt(turn, conversation_context, target_agent_did)
                 
                 logger.info(f"Turn {turn}: Asking booking agent to formulate message...")
-                print(f"[BookingAutomation] Turn {turn}: Asking booking agent to formulate message...")
+                logger.info(f"Turn {turn}: Asking booking agent to formulate message...")
                 
                 # Get booking agent's intelligent response with timeout
                 booking_agent_response = None
                 
                 async def get_agent_response():
                     nonlocal booking_agent_response
-                    print(f"[BookingAutomation] Turn {turn}: Starting to stream from booking agent...")
+                    logger.info(f"Turn {turn}: Starting to stream from booking agent...")
                     async for chunk in booking_agent.stream(agent_prompt, f"auto_booking_{datetime.now().timestamp()}", f"turn_{turn}"):
                         logger.debug(f"Turn {turn}: Received chunk from booking agent: {chunk}")
-                        print(f"[BookingAutomation] Turn {turn}: Received chunk: {chunk.get('is_task_complete', False)}")
+                        logger.info(f"Turn {turn}: Received chunk: {chunk.get('is_task_complete', False)}")
                         if chunk.get('is_task_complete'):
                             booking_agent_response = chunk.get('content')
                             logger.info(f"Turn {turn}: Booking agent suggests: {str(booking_agent_response)[:200]}...")
-                            print(f"[BookingAutomation] Turn {turn}: Booking agent response received")
+                            logger.info(f"Turn {turn}: Booking agent response received")
                             break
                 
                 try:
@@ -239,7 +265,7 @@ class BookingAutomation:
                 except asyncio.TimeoutError:
                     error_msg = f"Turn {turn}: Booking agent timed out while formulating response"
                     logger.error(error_msg)
-                    print(f"[BookingAutomation] ⏱️ TIMEOUT: Booking agent timed out after 10 seconds")
+                    logger.info(f"⏱️ TIMEOUT: Booking agent timed out after 10 seconds")
                     
                     if progress_callback:
                         await progress_callback(
@@ -272,12 +298,12 @@ class BookingAutomation:
                     )
                 
                 logger.info(f"Turn {turn}: Sending to target: {message_to_send[:100]}...")
-                print(f"[BookingAutomation] Turn {turn}: Sending to target agent at {target_agent_endpoint}")
-                print(f"[BookingAutomation] Turn {turn}: Message: {message_to_send[:100]}...")
+                logger.info(f"Turn {turn}: Sending to target agent at {target_agent_endpoint}")
+                logger.info(f"Turn {turn}: Message: {message_to_send[:100]}...")
                 
                 # Add timeout to prevent hanging on A2A communication
                 try:
-                    print(f"[BookingAutomation] Turn {turn}: Waiting for A2A response (10s timeout)...")
+                    logger.info(f"Turn {turn}: Waiting for A2A response (10s timeout)...")
                     response = await asyncio.wait_for(
                         send_message_to_a2a_agent(
                             endpoint_url=target_agent_endpoint,
@@ -286,11 +312,11 @@ class BookingAutomation:
                         timeout=10.0  # 10 seconds for A2A response
                     )
                     logger.info(f"Turn {turn}: Target agent responded: {response[:200]}...")
-                    print(f"[BookingAutomation] Turn {turn}: Target agent responded: {response[:200]}...")
+                    logger.info(f"Turn {turn}: Target agent responded: {response[:200]}...")
                 except asyncio.TimeoutError:
                     error_msg = f"Turn {turn}: Target agent did not respond within 10 seconds"
                     logger.error(error_msg)
-                    print(f"[BookingAutomation] ⏱️ TIMEOUT: Target agent timed out after 10 seconds")
+                    logger.info(f"⏱️ TIMEOUT: Target agent timed out after 10 seconds")
                     
                     if progress_callback:
                         await progress_callback(

@@ -988,6 +988,31 @@ Always prioritize the user's preferences while being flexible to find workable s
                                 st.markdown(f"**Sent:** {turn.message_sent}")
                                 st.markdown(f"**Received:** {turn.response_received}")
                                 st.markdown("---")
+                
+                # Always show log file for debugging
+                st.markdown("---")
+                st.subheader("📋 Booking Automation Logs")
+                
+                log_file_path = Path("/tmp/booking_automation.log")
+                if log_file_path.exists():
+                    with st.expander("📋 View Log File", expanded=True):
+                        try:
+                            with open(log_file_path, 'r') as f:
+                                log_content = f.read()
+                            st.code(log_content, language="text")
+                            
+                            # Download button
+                            st.download_button(
+                                label="💾 Download Log",
+                                data=log_content,
+                                file_name="booking_automation.log",
+                                mime="text/plain",
+                                key="download_booking_log"
+                            )
+                        except Exception as e:
+                            st.error(f"Error reading log file: {e}")
+                else:
+                    st.info("📋 Log file will appear here when automated booking starts")
         
         st.markdown("---")
     
