@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 from pathlib import Path
 
@@ -5,9 +6,25 @@ from mcp_agent.app import MCPApp
 from mcp_agent.agents.agent import Agent
 from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIAugmentedLLM
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Find synergies between members.")
+    parser.add_argument(
+        "--source",
+        choices=["member", "sponsor", "venture"],
+        help="Choose which group to evaluate: member, sponsor, or venture.",
+    )
+    args = parser.parse_args()
+    if args.source is None:
+        parser.print_help()
+        raise SystemExit(1)
+    return args
+
+
 app = MCPApp(name="find-matches")
 
-async def main():
+
+async def main(source: str):
+    print(f"Program started with source: {source}")
     async with app.run():
         agent = Agent(
             name="finder"
@@ -23,11 +40,16 @@ async def main():
             my_summary = my_summary_path.read_text().strip()
             print(f"Loaded my summary: {my_summary}")
 
+            summaries_dir = (
+                Path(__file__).resolve().parent.parent
+                / "harvest-ai-alliance-network"
+                / "data"
+                / f"{source}-summaries"
+            )
+
             data_dir = Path(__file__).parent / "data"
-            summaries_dir = data_dir / "member-summaries"
-            synergies_dir = data_dir / "synergies"
+            synergies_dir = data_dir / f"{source}-synergies"
             synergies_dir.mkdir(parents=True, exist_ok=True)
-            summaries_dir.mkdir(parents=True, exist_ok=True)
             summary_files = sorted(
                 [path for path in summaries_dir.glob("*.md") if path.is_file()]
             )
@@ -54,4 +76,5 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    cli_args = parse_args()
+    asyncio.run(main(cli_args.source))
