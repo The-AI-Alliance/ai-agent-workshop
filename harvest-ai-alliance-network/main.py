@@ -31,7 +31,12 @@ async def main(mode="member", max_urls=None):
 
             # Load the list of company URLs to harvest
             urls_path = Path(__file__).parent / "data" / urls_filename
-            urls = [line.strip() for line in urls_path.read_text().splitlines() if line.strip()]
+            urls = []
+            for raw_line in urls_path.read_text().splitlines():
+                line = raw_line.strip()
+                if not line:
+                    break
+                urls.append(line)
             print(f"Found {len(urls)} URLs to harvest from {urls_filename}")
 
             if max_urls is not None:
