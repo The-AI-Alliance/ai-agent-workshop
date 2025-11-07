@@ -1,0 +1,65 @@
+{
+  "team": [
+    [
+      "Nathalie Brochstein",
+      "https://www.linkedin.com/in/nathalie/",
+      "full"
+    ],
+    [
+      "Baris Sismek",
+      "https://www.linkedin.com/in/barissimsek/",
+      "part"
+    ]
+  ],
+  "references": [
+    [
+      "http://karibu.ai",
+      "Website"
+    ]
+  ],
+  "kind": "venture",
+  "subjectDid": "did:web:iamagentic.ai:69",
+  "solution": [
+    "Karibu automates learning content from an organization\u2019s DNA and delivers it through adaptive, conversational AI"
+  ],
+  "updated": "2025-09-30T22:09:31.653Z",
+  "marketOpportunity": [
+    [
+      "Fast-Growing Teams in Knowledge-Heavy, High-Turnover Sectors (US)",
+      230000000000
+    ]
+  ],
+  "problem": [
+    " 1 in 5 new hires leave within their first 45 days",
+    "90% of Training is Forgotten",
+    "$Bns Wasted annually"
+  ],
+  "positioning": {
+    "unlike": "legacy LMS tools",
+    "name": "Karibu",
+    "primaryDifferentiator": "automates content synthesis from your insitutional knowledge",
+    "forWho": "Operational leaders",
+    "whoNeed": "need to keep people and processes in sync",
+    "keyBenefit": "cuts ramp-up time, reduces attrition, and aligns teams at scale",
+    "productCategory": "conversational alignment platform"
+  },
+  "milestones": [
+    [
+      "Onboard 3\u20136 Beta Partners   Validate features,  Capture case studies   Build proof points of traction",
+      24,
+      500000
+    ],
+    [
+      "Partner with  Ops & Consulting Firms   Partners author journeys in marketplace   Champion-led referrals expand adoption",
+      40,
+      ""
+    ],
+    [
+      "Scale (Activate Distribution Flywheel",
+      24,
+      ""
+    ]
+  ],
+  "markdown": "# Karibu - Venture Summary\n\nFor Operational leaders that need to keep people and processes in sync, Karibu is a conversational alignment platform that cuts ramp-up time, reduces attrition, and aligns teams at scale. Unlike legacy LMS tools, our product automates content synthesis from your insitutional knowledge.\n\n## Problem\n\n-  1 in 5 new hires leave within their first 45 days\n- 90% of Training is Forgotten\n- $Bns Wasted annually\n\n## Market Opportunity\n\n- **Fast-Growing Teams in Knowledge-Heavy, High-Turnover Sectors (US)**: $230,000,000,000\n\n## Solution\n\n- Karibu automates learning content from an organization\u2019s DNA and delivers it through adaptive, conversational AI\n\n## Milestones\n\n| Milestone | Duration | Funding Needed |\n|-----------|----------|----------------|\n| Onboard 3\u20136 Beta Partners   Validate features,  Capture case studies   Build proof points of traction | 24 weeks | $500,000 |\n| Partner with  Ops & Consulting Firms   Partners author journeys in marketplace   Champion-led referrals expand adoption | 40 weeks |  |\n| Scale (Activate Distribution Flywheel | 24 weeks |  |\n\n## Team\n\n| Name | LinkedIn | Role |\n|------|----------|------|\n| Nathalie Brochstein | [https://www.linkedin.com/in/nathalie/](https://www.linkedin.com/in/nathalie/) | full |\n| Baris Sismek | [https://www.linkedin.com/in/barissimsek/](https://www.linkedin.com/in/barissimsek/) | part |\n\n## References\n\n- [Website](http://karibu.ai)\n\n",
+  "id": "did:web:iamagentic.ai:69^venture"
+}

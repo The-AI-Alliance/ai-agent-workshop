@@ -1,0 +1,17 @@
+{
+  "positioning": {
+    "unlike": "whole foods",
+    "name": "Gummy",
+    "primaryDifferentiator": "more calories",
+    "forWho": "Kids",
+    "whoNeed": "candy",
+    "keyBenefit": "sugar",
+    "productCategory": "candy maker"
+  },
+  "solution": [],
+  "updated": "2025-11-03T08:48:21.080Z",
+  "kind": "venture",
+  "subjectDid": "did:web:iamagentic.ai:127",
+  "id": "did:web:iamagentic.ai:127^venture",
+  "problem": []
+}

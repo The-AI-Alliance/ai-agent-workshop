@@ -1,0 +1,91 @@
+{
+  "updated": "2025-11-03T15:29:20.029Z",
+  "subjectDid": "did:web:iamagentic.ai:1",
+  "kind": "venture",
+  "team": [
+    [
+      "Mike Prince",
+      "https://linkedin.com/in/mike-prince-7713",
+      "full"
+    ]
+  ],
+  "solution": [
+    "Secure environment for people to selectively disclose more information",
+    "Multiple markets/matching services ",
+    "Deep research",
+    "\"Last mile\" peer-to-peer AI conversational matching"
+  ],
+  "positioning": {
+    "unlike": "LinkedIn",
+    "name": "Matchwise",
+    "primaryDifferentiator": "uses deep research, geolocation, and selective disclosure to uncover the best leads",
+    "keyBenefit": "curates the next best people to network with",
+    "forWho": "people who network at business and social events",
+    "whoNeed": "want to save time by quickly finding the best leads",
+    "productCategory": "business and social networking app"
+  },
+  "problem": [
+    "Before an event, it's hard to research the people that will be there",
+    "Good matching requires more data than services like LinkedIn have",
+    "At events, it's easy to get stuck in dead-end conversations",
+    "At events, there's not enough time to talk to everyone to find the best match",
+    "Even if we find that \"best\" person, we might not ask the right questions to surface the best synergies"
+  ],
+  "references": [
+    [
+      "https://universalauth.org",
+      "Universal authentication protocol"
+    ],
+    [
+      "https://matchwise.ai",
+      "Webapp of Matchwise product"
+    ],
+    [
+      "https://agenticprofile.ai",
+      "Blog"
+    ]
+  ],
+  "marketOpportunity": [
+    [
+      "IRL business networking events",
+      1000000000000
+    ],
+    [
+      "Dating",
+      10000000000
+    ]
+  ],
+  "milestones": [
+    [
+      "3rd party agents",
+      4,
+      20000
+    ],
+    [
+      "Agent marketplace",
+      6,
+      30000
+    ],
+    [
+      "Deep research prototype",
+      4,
+      20000
+    ],
+    [
+      "Android app",
+      8,
+      40000
+    ],
+    [
+      "Agent subscriptions/billing",
+      10,
+      50000
+    ],
+    [
+      "Universal authentication protocol evangelism",
+      4,
+      20000
+    ]
+  ],
+  "id": "did:web:iamagentic.ai:1^venture"
+}
