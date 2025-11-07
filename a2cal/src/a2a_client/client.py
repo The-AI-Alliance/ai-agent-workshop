@@ -313,43 +313,59 @@ async def send_message_to_a2a_agent(
                     logger.error(f"❌ Could not convert chunk to dict: {e}")
                 
                 # Extract result from the chunk
-                # Priority 1: Try chunk.result directly (most common for SendStreamingMessageResponse)
+                # Based on debug file: SendStreamingMessageResponse has chunk.data.result structure
+                # Priority 1: Try chunk.data.result (SendStreamingMessageResponse structure)
+                if not result_data:
+                    if hasattr(chunk, 'data'):
+                        logger.info(f"🔍 chunk.data type: {type(chunk.data)}")
+                        print(f"🔍 chunk.data type: {type(chunk.data)}", file=sys.stderr)
+                        
+                        # Convert chunk.data to dict if it's a Pydantic model
+                        chunk_data = chunk.data
+                        if not isinstance(chunk_data, dict) and hasattr(chunk_data, 'model_dump'):
+                            try:
+                                chunk_data = chunk_data.model_dump()
+                                logger.info(f"✅ Converted chunk.data to dict")
+                                print(f"✅ Converted chunk.data to dict", file=sys.stderr)
+                            except Exception as e:
+                                logger.warning(f"⚠️ Could not convert chunk.data to dict: {e}")
+                        
+                        # Now try to get result from chunk_data
+                        if isinstance(chunk_data, dict) and 'result' in chunk_data:
+                            result_data = chunk_data['result']
+                            logger.info(f"✅ Got result_data from chunk.data['result']")
+                            print(f"✅ Got result_data from chunk.data['result']", file=sys.stderr)
+                        elif hasattr(chunk_data, 'result'):
+                            result_data = chunk_data.result
+                            logger.info(f"✅ Got result_data from chunk.data.result")
+                            print(f"✅ Got result_data from chunk.data.result", file=sys.stderr)
+                
+                # Priority 2: Try chunk_dict['data']['result'] (from model_dump)
+                if not result_data and chunk_dict:
+                    if 'data' in chunk_dict and isinstance(chunk_dict['data'], dict):
+                        if 'result' in chunk_dict['data']:
+                            result_data = chunk_dict['data']['result']
+                            logger.info(f"✅ Got result_data from chunk_dict['data']['result']")
+                            print(f"✅ Got result_data from chunk_dict['data']['result']", file=sys.stderr)
+                
+                # Priority 3: Try chunk.result directly (fallback)
                 if not result_data and hasattr(chunk, 'result'):
                     result_data = chunk.result
                     logger.info(f"✅ Got result_data from chunk.result (direct access)")
                     print(f"✅ Got result_data from chunk.result", file=sys.stderr)
                 
-                # Priority 2: Try chunk_dict['result'] (from model_dump)
+                # Priority 4: Try chunk_dict['result'] (from model_dump, top-level)
                 if not result_data and chunk_dict:
                     if 'result' in chunk_dict:
                         result_data = chunk_dict['result']
                         logger.info(f"✅ Got result_data from chunk_dict['result']")
                         print(f"✅ Got result_data from chunk_dict['result']", file=sys.stderr)
                 
-                # Priority 3: Try chunk.data.result (nested structure)
-                if not result_data:
-                    if hasattr(chunk, 'data'):
-                        logger.info(f"🔍 chunk.data type: {type(chunk.data)}")
-                        logger.info(f"🔍 chunk.data has 'result': {hasattr(chunk.data, 'result')}")
-                        
-                        if hasattr(chunk.data, 'result'):
-                            result_data = chunk.data.result
-                            logger.info(f"✅ Got result_data from chunk.data.result")
-                        elif isinstance(chunk.data, dict) and 'result' in chunk.data:
-                            result_data = chunk.data['result']
-                            logger.info(f"✅ Got result_data from chunk.data['result']")
-                
-                # Priority 4: Try chunk_dict['data']['result'] (nested dict)
-                if not result_data and chunk_dict:
-                    if 'data' in chunk_dict and isinstance(chunk_dict['data'], dict):
-                        if 'result' in chunk_dict['data']:
-                            result_data = chunk_dict['data']['result']
-                            logger.info(f"✅ Got result_data from chunk_dict['data']['result']")
-                
                 # Priority 5: Try dict access directly
                 if not result_data and isinstance(chunk, dict) and 'result' in chunk:
                     result_data = chunk['result']
                     logger.info(f"✅ Got result_data from chunk['result'] (direct dict)")
+                    print(f"✅ Got result_data from chunk['result']", file=sys.stderr)
                 
                 if result_data:
                     logger.info(f"🎯 result_data type: {type(result_data)}")
