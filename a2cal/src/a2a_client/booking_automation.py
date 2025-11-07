@@ -170,6 +170,7 @@ class BookingAutomation:
         
         for turn in range(1, self.max_turns + 1):
             self.current_turn = turn
+            print(f"\n[BookingAutomation] ========== STARTING TURN {turn}/{self.max_turns} ==========")
             
             try:
                 # Ask booking agent to formulate the message
@@ -179,6 +180,7 @@ class BookingAutomation:
                         "thinking",
                         f"Turn {turn}/{self.max_turns}: Booking agent is analyzing..."
                     )
+                print(f"[BookingAutomation] Turn {turn}: Progress callback done, building prompt...")
                 
                 # Build prompt for booking agent
                 agent_prompt = self._build_agent_prompt(turn, conversation_context, target_agent_did)
@@ -202,21 +204,22 @@ class BookingAutomation:
                             break
                 
                 try:
-                    await asyncio.wait_for(get_agent_response(), timeout=45.0)
+                    await asyncio.wait_for(get_agent_response(), timeout=10.0)
                 except asyncio.TimeoutError:
                     error_msg = f"Turn {turn}: Booking agent timed out while formulating response"
                     logger.error(error_msg)
+                    print(f"[BookingAutomation] ⏱️ TIMEOUT: Booking agent timed out after 10 seconds")
                     
                     if progress_callback:
                         await progress_callback(
                             turn,
                             "timeout",
-                            f"⏱️ Booking agent timed out"
+                            f"⏱️ Booking agent timed out (10s)"
                         )
                     
                     return {
                         'success': False,
-                        'message': f'Booking agent timed out on turn {turn}. Could not formulate message within 45 seconds.',
+                        'message': f'Booking agent timed out on turn {turn}. Could not formulate message within 10 seconds.',
                         'conversation_history': self.conversation_history,
                         'booking_details': None
                     }
@@ -243,30 +246,31 @@ class BookingAutomation:
                 
                 # Add timeout to prevent hanging on A2A communication
                 try:
-                    print(f"[BookingAutomation] Turn {turn}: Waiting for A2A response (60s timeout)...")
+                    print(f"[BookingAutomation] Turn {turn}: Waiting for A2A response (10s timeout)...")
                     response = await asyncio.wait_for(
                         send_message_to_a2a_agent(
                             endpoint_url=target_agent_endpoint,
                             message_text=message_to_send
                         ),
-                        timeout=60.0  # 60 seconds for A2A response
+                        timeout=10.0  # 10 seconds for A2A response
                     )
                     logger.info(f"Turn {turn}: Target agent responded: {response[:200]}...")
                     print(f"[BookingAutomation] Turn {turn}: Target agent responded: {response[:200]}...")
                 except asyncio.TimeoutError:
-                    error_msg = f"Turn {turn}: Target agent did not respond within 60 seconds"
+                    error_msg = f"Turn {turn}: Target agent did not respond within 10 seconds"
                     logger.error(error_msg)
+                    print(f"[BookingAutomation] ⏱️ TIMEOUT: Target agent timed out after 10 seconds")
                     
                     if progress_callback:
                         await progress_callback(
                             turn,
                             "timeout",
-                            f"⏱️ Target agent timed out"
+                            f"⏱️ Target agent timed out (10s)"
                         )
                     
                     return {
                         'success': False,
-                        'message': f'Target agent timed out on turn {turn}. No response received within 60 seconds.',
+                        'message': f'Target agent timed out on turn {turn}. No response received within 10 seconds.',
                         'conversation_history': self.conversation_history,
                         'booking_details': None
                     }
