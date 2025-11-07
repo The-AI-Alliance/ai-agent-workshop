@@ -2,9 +2,21 @@
 import asyncio
 import logging
 from uuid import uuid4
+from pathlib import Path
 
-# Initialize logger first
+# Initialize logger with file handler ONLY (no stderr/stdout to avoid broken pipe)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logger.handlers = []  # Remove any default handlers
+logger.propagate = False  # Don't propagate to parent loggers (which might have stderr handlers)
+
+# Add file handler for debugging (don't use stderr to avoid broken pipe)
+log_file = Path("/tmp/a2a_client.log")
+file_handler = logging.FileHandler(log_file, mode='a')
+file_handler.setLevel(logging.DEBUG)
+file_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', datefmt='%H:%M:%S')
+file_handler.setFormatter(file_formatter)
+logger.addHandler(file_handler)
 
 # Try to import required dependencies
 A2A_SDK_AVAILABLE = False
@@ -132,12 +144,12 @@ async def send_message_to_a2a_agent(
     import sys
     
     # CRITICAL: Print to stdout to ensure we see it
-    print("\n" + "="*80)
-    print("🚨 A2A CLIENT FUNCTION CALLED")
-    print(f"Endpoint: {endpoint_url}")
-    print(f"Message: {message_text[:50]}...")
-    print(f"A2A_SDK_AVAILABLE: {A2A_SDK_AVAILABLE}")
-    print("="*80 + "\n")
+    logger.info("="*80)
+    logger.info("🚨 A2A CLIENT FUNCTION CALLED")
+    logger.info(f"Endpoint: {endpoint_url}")
+    logger.info(f"Message: {message_text[:50]}...")
+    logger.info(f"A2A_SDK_AVAILABLE: {A2A_SDK_AVAILABLE}")
+    logger.info("="*80)
     
     logger.info("="*80)
     logger.info(f"🚨 A2A CLIENT FUNCTION CALLED")
@@ -230,53 +242,54 @@ async def send_message_to_a2a_agent(
             
             chunk_count = 0
             async for chunk in response_stream:
-                # Store raw chunk for debugging
+                # Store raw chunk for debugging (handle broken pipe gracefully)
                 try:
+                    chunk_type = type(chunk).__name__
                     if hasattr(chunk, 'model_dump'):
                         raw_chunks_debug.append({
-                            'type': type(chunk).__name__,
+                            'type': chunk_type,
                             'data': chunk.model_dump()
                         })
                     else:
                         raw_chunks_debug.append({
-                            'type': type(chunk).__name__,
+                            'type': chunk_type,
                             'data': str(chunk)[:500]
                         })
-                except:
-                    raw_chunks_debug.append({
-                        'type': type(chunk).__name__,
-                        'data': 'Could not serialize'
-                    })
+                except (BrokenPipeError, OSError):
+                    # Broken pipe when converting chunk to string - skip debug info
+                    pass
+                except Exception as e:
+                    try:
+                        raw_chunks_debug.append({
+                            'type': 'Unknown',
+                            'data': f'Could not serialize: {type(e).__name__}'
+                        })
+                    except:
+                        pass  # Even logging failed, skip it
                 chunk_count += 1
                 
-                # Print to stderr so it shows in Streamlit
-                import sys
-                print(f"\n{'='*70}", file=sys.stderr)
-                print(f"📦 RAW CHUNK #{chunk_count}", file=sys.stderr)
-                print(f"Type: {type(chunk)}", file=sys.stderr)
-                print(f"{'='*70}\n", file=sys.stderr)
-                
-                logger.info("\n" + "="*70)
-                logger.info(f"📦 RAW CHUNK #{chunk_count}")
-                logger.info("="*70)
-                logger.info(f"Type: {type(chunk)}")
-                logger.info(f"Chunk: {chunk}")
-                
-                # Try to dump it
+                # Log chunk details to file (handle broken pipe)
                 try:
-                    if hasattr(chunk, 'model_dump'):
-                        import json
-                        dumped = json.dumps(chunk.model_dump(), indent=2, default=str)
-                        logger.info(f"Dumped: {dumped}")
-                        print(f"Dumped structure: {dumped[:500]}...", file=sys.stderr)
-                    elif hasattr(chunk, '__dict__'):
-                        logger.info(f"Dict: {chunk.__dict__}")
-                        print(f"Dict: {chunk.__dict__}", file=sys.stderr)
-                except Exception as e:
-                    logger.info(f"Could not dump: {e}")
-                    print(f"Could not dump: {e}", file=sys.stderr)
-                
-                logger.info("="*70 + "\n")
+                    logger.debug("="*70)
+                    logger.debug(f"📦 RAW CHUNK #{chunk_count}")
+                    logger.debug(f"Type: {type(chunk)}")
+                    logger.debug(f"Chunk: {chunk}")
+
+                    # Try to dump it
+                    try:
+                        if hasattr(chunk, 'model_dump'):
+                            import json
+                            dumped = json.dumps(chunk.model_dump(), indent=2, default=str)
+                            logger.debug(f"Dumped structure: {dumped[:500]}...")
+                        elif hasattr(chunk, '__dict__'):
+                            logger.debug(f"Dict: {chunk.__dict__}")
+                    except Exception as e:
+                        logger.debug(f"Could not dump: {e}")
+
+                    logger.debug("="*70)
+                except (BrokenPipeError, OSError):
+                    # Broken pipe during logging - skip this chunk's debug info
+                    pass
                 
                 # NEW: Direct parsing of the actual structure we're receiving
                 # Based on debug file: chunk.data.result contains the event
@@ -357,17 +370,14 @@ async def send_message_to_a2a_agent(
                     logger.warning(f"❌ Could not extract result_data from chunk!")
                 
                 if result_data:
-                    print(f"✅ Found result_data, checking kind...", file=sys.stderr)
                     logger.info(f"✅ Found result_data, checking kind...")
                     
                     # Get the 'kind' field to determine what type of event this is
                     event_kind = result_data.get('kind') if isinstance(result_data, dict) else getattr(result_data, 'kind', None)
-                    print(f"   Event kind: {event_kind}", file=sys.stderr)
                     logger.info(f"   Event kind: {event_kind}")
                     
                     # Handle artifact-update (THIS IS WHERE THE MAIN RESPONSE IS)
                     if event_kind == 'artifact-update':
-                        print(f"   📦 Processing artifact-update", file=sys.stderr)
                         logger.info(f"   📦 Processing artifact-update")
                         
                         artifact = result_data.get('artifact') if isinstance(result_data, dict) else getattr(result_data, 'artifact', None)
@@ -377,20 +387,17 @@ async def send_message_to_a2a_agent(
                             parts = artifact.get('parts') if isinstance(artifact, dict) else getattr(artifact, 'parts', None)
                             
                             if parts:
-                                print(f"   Found {len(parts)} parts in artifact", file=sys.stderr)
                                 logger.info(f"   Found {len(parts)} parts in artifact")
                                 
                                 for i, part in enumerate(parts):
                                     part_kind = part.get('kind') if isinstance(part, dict) else getattr(part, 'kind', None)
                                     logger.info(f"   Part {i} kind: {part_kind}")
-                                    print(f"   Part {i}: {part}", file=sys.stderr)
                                     
                                     # Handle kind="text" - extract from 'text' field
                                     if part_kind == 'text':
                                         text_value = part.get('text') if isinstance(part, dict) else getattr(part, 'text', None)
                                         if text_value:
                                             response_text += text_value
-                                            print(f"   ✅ Extracted TEXT from part {i}: {text_value[:100]}...", file=sys.stderr)
                                             logger.info(f"   ✅ Extracted TEXT from part {i}: {len(text_value)} chars")
                                         else:
                                             logger.warning(f"   ⚠️ Part {i} kind='text' but no text value found")
@@ -420,7 +427,6 @@ async def send_message_to_a2a_agent(
                                             
                                             if text_value:
                                                 response_text += text_value
-                                                print(f"   ✅ Extracted DATA from part {i}: {text_value[:100]}...", file=sys.stderr)
                                                 logger.info(f"   ✅ Extracted DATA from part {i}: {len(text_value)} chars")
                                         else:
                                             logger.warning(f"   ⚠️ Part {i} kind='data' but no data value found or data is not a dict")
@@ -434,7 +440,6 @@ async def send_message_to_a2a_agent(
                     
                     # Handle status-update (may contain status messages)
                     elif event_kind == 'status-update':
-                        print(f"   📊 Processing status-update", file=sys.stderr)
                         status = getattr(result_data, 'status', None) or (result_data.get('status') if isinstance(result_data, dict) else None)
                         
                         if status:
@@ -452,20 +457,16 @@ async def send_message_to_a2a_agent(
                                             if text_value:
                                                 # Optionally include status messages
                                                 # response_text += f"\n[Status: {text_value}]\n"
-                                                print(f"   ℹ️ Status message: {text_value}", file=sys.stderr)
                     
                     # Handle task (initial task submission)
                     elif event_kind == 'task':
-                        print(f"   📋 Task submission received", file=sys.stderr)
                     
                     else:
-                        print(f"   ⚠️ Unknown event kind: {event_kind}", file=sys.stderr)
                     
                     continue  # Skip the old parsing logic below
                 
                 # OLD LOGIC (fallback) - Handle streaming response - chunk is SendStreamingMessageResponse
                 if hasattr(chunk, 'root') and isinstance(chunk.root, SendStreamingMessageSuccessResponse):
-                    print(f"✅ [FALLBACK] Chunk has .root with SendStreamingMessageSuccessResponse", file=sys.stderr)
                     event = chunk.root.result
                     
                     logger.debug(f"-------- EVENT TO TRANSFORM #{chunk_count} --------")
@@ -625,7 +626,6 @@ async def send_message_to_a2a_agent(
                             logger.info(f"✅ Extracted text from event.text")
                 else:
                     # Chunk doesn't have .root structure - try to parse directly
-                    print(f"⚠️ Chunk doesn't have .root structure, attempting direct parse", file=sys.stderr)
                     logger.warning(f"Chunk doesn't have expected .root structure: {type(chunk)}")
                     
                     # Try to parse chunk directly as an event
@@ -633,21 +633,16 @@ async def send_message_to_a2a_agent(
                         if hasattr(chunk, 'model_dump'):
                             chunk_dict = chunk.model_dump()
                             logger.info(f"Chunk dict keys: {list(chunk_dict.keys())}")
-                            print(f"Chunk dict keys: {list(chunk_dict.keys())}", file=sys.stderr)
                         
                         # Try common attributes
                         if hasattr(chunk, 'text'):
                             response_text += str(chunk.text)
-                            print(f"✅ Extracted from chunk.text", file=sys.stderr)
                         elif hasattr(chunk, 'content'):
                             response_text += str(chunk.content)
-                            print(f"✅ Extracted from chunk.content", file=sys.stderr)
                         elif hasattr(chunk, 'message'):
                             response_text += str(chunk.message)
-                            print(f"✅ Extracted from chunk.message", file=sys.stderr)
                     except Exception as e:
                         logger.error(f"Error parsing chunk directly: {e}")
-                        print(f"❌ Error parsing chunk: {e}", file=sys.stderr)
         else:
             # Use non-streaming
             request = SendMessageRequest(
@@ -780,13 +775,13 @@ async def send_message_to_a2a_agent(
             
             logger.warning(f"Final error message: {response_text[:500]}")
             
-            # Also print to console for visibility
-            print("\n" + "="*70)
-            print("🚨 A2A CLIENT: NO TEXT EXTRACTED")
-            print("="*70)
-            print(f"Chunks received: {len(raw_chunks_debug)}")
-            print(f"Debug file: {debug_file_path}")
-            print("="*70 + "\n")
+            # Log to file for debugging
+            logger.warning("="*70)
+            logger.warning("🚨 A2A CLIENT: NO TEXT EXTRACTED")
+            logger.warning("="*70)
+            logger.warning(f"Chunks received: {len(raw_chunks_debug)}")
+            logger.warning(f"Debug file: {debug_file_path}")
+            logger.warning("="*70)
         else:
             logger.info("\n" + "="*70)
             logger.info("✅ FINAL AGENT RESPONSE")

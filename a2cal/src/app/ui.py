@@ -1237,7 +1237,7 @@ Chat enabled: {chat_enabled_a2a}
                         # Store the context_id for conversation continuity
                         if new_context_id:
                             st.session_state.a2a_context_id = new_context_id
-                            print(f"✅ Stored context_id for conversation: {new_context_id}")
+                            # Context stored (removed print to avoid broken pipe)
                         
                         st.write(response_text)
                         
@@ -1246,6 +1246,10 @@ Chat enabled: {chat_enabled_a2a}
                             'role': 'assistant',
                             'content': response_text
                         })
+
+                        # Only rerun on successful message exchange
+                        st.rerun()
+
                     except ExceptionGroup as eg:
                         # Handle ExceptionGroup (TaskGroup errors)
                         error_details = []
@@ -1258,11 +1262,13 @@ Chat enabled: {chat_enabled_a2a}
                             'role': 'assistant',
                             'content': error_msg
                         })
+                        # Don't rerun on error - let user see the error message
+
                     except Exception as e:
                         # Extract more details from the error
                         error_msg = f"Error communicating with agent: {str(e)}"
                         error_type = type(e).__name__
-                        
+
                         # Provide more helpful error messages
                         if "ImportError" in error_type or "a2a-sdk" in str(e).lower():
                             # Show detailed debug info for import errors
@@ -1284,7 +1290,7 @@ Error: {str(e)}
                             error_msg = f"❌ Cannot connect to A2A server at `{a2a_endpoint}`. Please check:\n- The server is running\n- The URL is correct\n- Network connectivity"
                         elif "TaskGroup" in str(e):
                             error_msg = f"❌ Connection failed: {str(e)}\n\nThis usually means the A2A server is not accessible. Please verify the endpoint URL."
-                        
+
                         st.error(error_msg)
                         with st.expander("🔍 Error Details", expanded=True):
                             st.exception(e)
@@ -1299,8 +1305,7 @@ Error type: {error_type}
                             'role': 'assistant',
                             'content': error_msg
                         })
-            
-            st.rerun()
+                        # Don't rerun on error - let user see the error message
         
         # Automated AI Booking Section (visible button above Clear Chat)
         if a2a_endpoint:
@@ -1666,6 +1671,10 @@ Always prioritize the user's preferences while being flexible to find workable s
                             'role': 'assistant',
                             'content': response
                         })
+
+                        # Only rerun on successful message exchange
+                        st.rerun()
+
                     except ExceptionGroup as eg:
                         # Handle ExceptionGroup (TaskGroup errors)
                         error_details = []
@@ -1678,17 +1687,19 @@ Always prioritize the user's preferences while being flexible to find workable s
                             'role': 'assistant',
                             'content': error_msg
                         })
+                        # Don't rerun on error - let user see the error message
+
                     except Exception as e:
                         # Extract more details from the error
                         error_msg = f"Error communicating with agent: {str(e)}"
                         error_type = type(e).__name__
-                        
+
                         # Provide more helpful error messages
                         if "ConnectError" in error_type or "connection" in str(e).lower():
                             error_msg = f"❌ Cannot connect to MCP server at `{mcp_endpoint}`. Please check:\n- The server is running\n- The URL is correct\n- Network connectivity"
                         elif "TaskGroup" in str(e):
                             error_msg = f"❌ Connection failed: {str(e)}\n\nThis usually means the MCP server is not accessible. Please verify the endpoint URL."
-                        
+
                         st.error(error_msg)
                         with st.expander("🔍 Error Details", expanded=False):
                             st.exception(e)
@@ -1696,8 +1707,7 @@ Always prioritize the user's preferences while being flexible to find workable s
                             'role': 'assistant',
                             'content': error_msg
                         })
-            
-            st.rerun()
+                        # Don't rerun on error - let user see the error message
         
         # Clear chat button
         if st.button("🗑️ Clear Chat", key="clear_mcp_chat"):
