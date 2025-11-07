@@ -2,4 +2,4 @@ mcp_agent.secrets.yaml
 .venv/
 .DS_Store
 .run-pids
-
+a2cal/src/common/agent_did.txt
