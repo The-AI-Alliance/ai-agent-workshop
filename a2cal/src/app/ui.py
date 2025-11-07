@@ -819,12 +819,18 @@ def use_agent_to_book_page():
         col1, col2, col3 = st.columns([2, 1, 2])
         with col2:
             if st.button("🤖 Let AI Book Meeting", type="primary", use_container_width=True, key="auto_book_button"):
+                print("\n" + "="*80)
+                print("[UI] 🚀 AUTOMATED BOOKING BUTTON CLICKED!")
+                print("="*80)
+                
                 # Initialize booking automation
                 from a2a_client.booking_automation import BookingAutomation, MeetingPreferences
+                print("[UI] ✓ Imported BookingAutomation and MeetingPreferences")
                 
                 # Convert sidebar preferences to MeetingPreferences
                 # Use natural language for the AI to interpret
                 prefs = st.session_state.preferences
+                print(f"[UI] ✓ Retrieved preferences: {prefs}")
                 date_pref = f"within the next week, preferably on {', '.join(prefs.preferred_days)}"
                 time_pref = f"between {prefs.preferred_start_hour}:00 and {prefs.preferred_end_hour}:00"
                 
@@ -840,11 +846,13 @@ def use_agent_to_book_page():
                     description=meeting_description if meeting_description else None,
                     partner_agent_id=agent_did
                 )
+                print(f"[UI] ✓ Created MeetingPreferences: {preferences}")
                 
                 # Create status container
                 status_container = st.container()
                 progress_bar = st.progress(0)
                 status_text = st.empty()
+                print("[UI] ✓ Created Streamlit UI elements (progress bar, status text)")
                 
                 # Progress callback
                 async def update_progress(turn: int, status: str, message: str):
@@ -853,12 +861,16 @@ def use_agent_to_book_page():
                     status_text.markdown(f"**Turn {turn}/5:** {message}")
                 
                 # Get or create booking agent
+                print("[UI] Checking for existing booking agent...")
                 if 'booking_agent' not in st.session_state or st.session_state.booking_agent is None:
+                    print("[UI] No booking agent found, creating new one...")
                     from agents.calendar_booking_agent import CalendarBookingAgent
                     
                     status_text.markdown("**Creating booking agent...**")
+                    print("[UI] Importing CalendarBookingAgent...")
                     
                     try:
+                        print("[UI] Creating CalendarBookingAgent instance...")
                         st.session_state.booking_agent = CalendarBookingAgent(
                             agent_name="Calendar Booking Agent",
                             description="Intelligent agent that negotiates meeting bookings on your behalf",
@@ -874,23 +886,39 @@ When communicating with other agents:
 
 Always prioritize the user's preferences while being flexible to find workable solutions."""
                         )
+                        print("[UI] ✅ CalendarBookingAgent instance created successfully")
                         status_text.markdown("**✅ Booking agent created**")
                     except Exception as e:
+                        print(f"[UI] ❌ Failed to create booking agent: {e}")
                         st.error(f"❌ Failed to create booking agent: {str(e)}")
                         import traceback
+                        print(f"[UI] Traceback: {traceback.format_exc()}")
                         with st.expander("🐛 Error Details"):
                             st.code(traceback.format_exc())
                         st.stop()
+                else:
+                    print("[UI] ✓ Using existing booking agent from session state")
                 
                 # Run booking automation with AI agent
+                print(f"[UI] Creating BookingAutomation instance (max_turns=5)...")
                 automation = BookingAutomation(max_turns=5)
+                print(f"[UI] ✓ BookingAutomation instance created")
                 
                 try:
+                    print(f"[UI] Setting up asyncio...")
                     import asyncio
                     import nest_asyncio
                     nest_asyncio.apply()
+                    print(f"[UI] ✓ nest_asyncio applied")
                     
                     loop = asyncio.get_event_loop()
+                    print(f"[UI] ✓ Got event loop: {loop}")
+                    print(f"[UI] 🚀 Calling automation.book_meeting()...")
+                    print(f"[UI]    - target_agent_endpoint: {a2a_endpoint}")
+                    print(f"[UI]    - target_agent_did: {agent_did}")
+                    print(f"[UI]    - preferences: {preferences}")
+                    print(f"[UI] ⏳ Running async function with loop.run_until_complete()...")
+                    
                     result = loop.run_until_complete(
                         automation.book_meeting(
                             target_agent_endpoint=a2a_endpoint,
@@ -900,6 +928,8 @@ Always prioritize the user's preferences while being flexible to find workable s
                             progress_callback=update_progress
                         )
                     )
+                    print(f"[UI] ✅ automation.book_meeting() completed!")
+                    print(f"[UI] Result: {result}")
                     
                     # Display result
                     progress_bar.progress(1.0)

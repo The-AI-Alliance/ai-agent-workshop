@@ -115,13 +115,27 @@ class BookingAutomation:
                 - conversation_history: List[ConversationTurn]
                 - booking_details: Optional[Dict]
         """
+        print("\n" + "="*80)
+        print("[BookingAutomation] 🎯 book_meeting() FUNCTION CALLED!")
+        print("="*80)
+        print(f"[BookingAutomation] Parameters received:")
+        print(f"  - target_agent_endpoint: {target_agent_endpoint}")
+        print(f"  - target_agent_did: {target_agent_did}")
+        print(f"  - preferences: {preferences}")
+        print(f"  - booking_agent: {booking_agent}")
+        print(f"  - progress_callback: {progress_callback}")
+        
         logger.info(f"Starting automated booking flow with {target_agent_endpoint}")
         logger.info(f"Using BookingAgent: {booking_agent.agent_name}")
+        print(f"[BookingAutomation] ✓ Logger statements executed")
         
         # Import here to avoid circular dependencies
+        print(f"[BookingAutomation] Importing send_message_to_a2a_agent...")
         try:
             from a2a_client.client import send_message_to_a2a_agent
+            print(f"[BookingAutomation] ✓ Successfully imported send_message_to_a2a_agent")
         except ImportError as e:
+            print(f"[BookingAutomation] ❌ Failed to import: {e}")
             logger.error(f"Failed to import A2A client: {e}")
             return {
                 'success': False,
@@ -131,21 +145,33 @@ class BookingAutomation:
             }
         
         # Build the context for the booking agent
+        print(f"[BookingAutomation] Building booking context...")
         booking_context = self._build_booking_context(preferences, target_agent_did)
+        print(f"[BookingAutomation] ✓ Booking context built")
         
+        print(f"[BookingAutomation] Checking if progress_callback is provided...")
         if progress_callback:
+            print(f"[BookingAutomation] Calling progress_callback(0, 'starting', ...)...")
             await progress_callback(0, "starting", "Initiating AI-powered booking...")
+            print(f"[BookingAutomation] ✓ progress_callback completed")
+        else:
+            print(f"[BookingAutomation] No progress_callback provided")
         
         # Initialize booking agent if needed
+        print(f"[BookingAutomation] Checking if booking agent needs initialization...")
+        print(f"[BookingAutomation] booking_agent.agent = {booking_agent.agent}")
         if not booking_agent.agent:
+            print(f"[BookingAutomation] Booking agent needs initialization")
             if progress_callback:
                 await progress_callback(0, "initializing", "Initializing booking agent...")
             
             try:
                 # Add timeout to prevent hanging
                 logger.info("Initializing booking agent with 30s timeout...")
+                print(f"[BookingAutomation] Calling booking_agent.init_agent() with 30s timeout...")
                 await asyncio.wait_for(booking_agent.init_agent(), timeout=30.0)
                 logger.info("Booking agent initialized successfully")
+                print(f"[BookingAutomation] ✅ Booking agent initialized successfully")
             except asyncio.TimeoutError:
                 error_msg = "Booking agent initialization timed out after 30 seconds. Check MCP server connection."
                 logger.error(error_msg)
@@ -164,9 +190,14 @@ class BookingAutomation:
                     'conversation_history': [],
                     'booking_details': None
                 }
+        else:
+            print(f"[BookingAutomation] ✓ Booking agent already initialized, skipping init")
         
         # Conversation loop - BookingAgent talks to target agent
+        print(f"[BookingAutomation] Building conversation context...")
         conversation_context = f"{booking_context}\n\nTarget Agent A2A Endpoint: {target_agent_endpoint}\nTarget Agent DID: {target_agent_did}"
+        print(f"[BookingAutomation] ✓ Conversation context built")
+        print(f"[BookingAutomation] 🔄 ENTERING MAIN CONVERSATION LOOP (max_turns={self.max_turns})...")
         
         for turn in range(1, self.max_turns + 1):
             self.current_turn = turn
