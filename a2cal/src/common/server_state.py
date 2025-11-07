@@ -6,6 +6,20 @@ from typing import Optional
 STATE_FILE = Path(__file__).parent.parent / ".server_state.json"
 
 
+def reset_server_state() -> None:
+    """Reset server state to empty - clears all persisted state.
+    
+    This should be called at server startup to ensure clean state.
+    """
+    try:
+        # Write empty state
+        with STATE_FILE.open('w') as f:
+            json.dump({}, f, indent=2)
+        print(f"✅ Reset server state file: {STATE_FILE}")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not reset server state: {e}")
+
+
 def get_server_state() -> dict:
     """Get current server state from file.
     

@@ -2,4 +2,5 @@ mcp_agent.secrets.yaml
 .venv/
 .DS_Store
 .run-pids
+.server_state.json
 

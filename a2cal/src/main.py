@@ -136,6 +136,10 @@ def main() -> None:
     # Configure logging first (suppress LiteLLM debug logs)
     config_logging()
     
+    # Reset server state on startup - don't persist across runtimes
+    from common.server_state import reset_server_state
+    reset_server_state()
+    
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="A2Cal Calendar Agent Server")
     parser.add_argument(

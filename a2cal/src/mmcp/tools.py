@@ -103,13 +103,14 @@ def register_tools(
             return {'error': str(e), 'available_slots': []}
 
     @mcp.tool()
-    def requestBooking(time: str, duration: str, partner_agent_id: str) -> dict:
+    def requestBooking(time: str, duration: str, partner_agent_id: str, title: str = None) -> dict:
         """Request a calendar booking/meeting.
         
         Args:
             time: Start time in ISO format (e.g., "2024-01-15T10:00:00")
             duration: Duration of the meeting (e.g., "30m", "1h", "45m")
             partner_agent_id: ID of the partner agent requesting the meeting
+            title: Optional title for the meeting
             
         Returns:
             Dictionary with booking result and event details
@@ -121,7 +122,8 @@ def register_tools(
             event = calendar.propose_event(
                 time=event_time,
                 duration=duration,
-                partner_agent_id=partner_agent_id
+                partner_agent_id=partner_agent_id,
+                title=title
             )
             
             # Save to database
@@ -141,18 +143,19 @@ def register_tools(
             return {'success': False, 'error': str(e)}
 
     @mcp.tool()
-    def proposeMeeting(time: str, duration: str, partner_agent_id: str) -> dict:
+    def proposeMeeting(time: str, duration: str, partner_agent_id: str, title: str = None) -> dict:
         """Propose a meeting time (same as requestBooking, alias for clarity).
         
         Args:
             time: Start time in ISO format (e.g., "2024-01-15T10:00:00")
             duration: Duration of the meeting (e.g., "30m", "1h", "45m")
             partner_agent_id: ID of the partner agent proposing the meeting
+            title: Optional title for the meeting
             
         Returns:
             Dictionary with proposal result and event details
         """
-        return requestBooking(time, duration, partner_agent_id)
+        return requestBooking(time, duration, partner_agent_id, title)
 
     @mcp.tool()
     def acceptMeeting(event_id: str) -> dict:

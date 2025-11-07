@@ -31,10 +31,18 @@ class CalendarDBAdapter:
                     duration TEXT NOT NULL,
                     status TEXT NOT NULL,
                     partner_agent_id TEXT NOT NULL,
+                    title TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
             """)
+            
+            # Add title column if it doesn't exist (migration)
+            try:
+                cursor.execute("ALTER TABLE events ADD COLUMN title TEXT")
+            except sqlite3.OperationalError:
+                # Column already exists, ignore
+                pass
             
             # Preferences table (single row)
             cursor.execute("""
@@ -82,22 +90,34 @@ class CalendarDBAdapter:
                 
                 cursor.execute("""
                     INSERT OR REPLACE INTO events 
-                    (event_id, time, duration, status, partner_agent_id, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (event_id, time, duration, status, partner_agent_id, title, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     event.event_id,
                     event.time.isoformat() if isinstance(event.time, datetime) else str(event.time),
                     event.duration,
                     status_value,
                     event.partner_agent_id,
+                    getattr(event, 'title', None),  # Get title if it exists, otherwise None
                     event.created_at.isoformat() if isinstance(event.created_at, datetime) else str(event.created_at),
                     event.updated_at.isoformat() if isinstance(event.updated_at, datetime) else str(event.updated_at)
                 ))
                 
                 conn.commit()
+                
+                # Verify the event was actually saved
+                cursor.execute("SELECT event_id, status FROM events WHERE event_id = ?", (event.event_id,))
+                saved_row = cursor.fetchone()
+                if not saved_row:
+                    print(f"🔍 DEBUG: ERROR - Event {event.event_id} was not found in database after INSERT!")
+                    return False
+                
+                print(f"🔍 DEBUG: Successfully saved event {event.event_id} with status '{saved_row[1]}' to database")
                 return True
         except Exception as e:
             print(f"🔍 DEBUG: Error saving event {event.event_id}: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def load_event(self, event_id: str, event_class):
@@ -194,6 +214,7 @@ class CalendarDBAdapter:
                 duration=row['duration'],
                 status=status,
                 partner_agent_id=row['partner_agent_id'],
+                title=row.get('title'),  # Get title if column exists, otherwise None
                 created_at=datetime.fromisoformat(row['created_at']),
                 updated_at=datetime.fromisoformat(row['updated_at'])
             )
@@ -240,14 +261,15 @@ class CalendarDBAdapter:
                     
                     cursor.execute("""
                         INSERT OR REPLACE INTO events 
-                        (event_id, time, duration, status, partner_agent_id, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        (event_id, time, duration, status, partner_agent_id, title, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         event.event_id,
                         event.time.isoformat() if isinstance(event.time, datetime) else str(event.time),
                         event.duration,
                         status_value,
                         event.partner_agent_id,
+                        getattr(event, 'title', None),  # Get title if it exists, otherwise None
                         event.created_at.isoformat() if isinstance(event.created_at, datetime) else str(event.created_at),
                         event.updated_at.isoformat() if isinstance(event.updated_at, datetime) else str(event.updated_at)
                     ))

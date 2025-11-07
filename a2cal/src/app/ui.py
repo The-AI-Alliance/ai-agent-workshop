@@ -233,8 +233,51 @@ def get_status_value(status):
     return str(status) if status else "unknown"
 
 
+def sync_calendar_from_database():
+    """Reload calendar events from database to sync with any changes made via MCP/A2A.
+    
+    This function is safe to call multiple times and will not hang.
+    """
+    try:
+        saved_events = db_adapter.load_all_events(Event, EventStatus)
+        if saved_events:
+            # Ensure calendar exists
+            if 'calendar' not in st.session_state or not isinstance(st.session_state.calendar, Calendar):
+                st.session_state.calendar = Calendar(owner_agent_id="agent-alpha")
+            
+            # Clear and reload all events from database
+            # Use a copy to avoid modifying during iteration
+            st.session_state.calendar.events.clear()
+            for event in saved_events:
+                # Ensure status is properly set (convert string to enum if needed)
+                if isinstance(event.status, str) and hasattr(EventStatus, event.status.upper()):
+                    try:
+                        event.status = EventStatus[event.status.upper()]
+                    except:
+                        pass
+                st.session_state.calendar.events[event.event_id] = event
+            print(f"🔍 DEBUG: Synced {len(saved_events)} events from database to calendar")
+            return True
+        else:
+            # No events in database - ensure calendar exists but is empty
+            if 'calendar' not in st.session_state or not isinstance(st.session_state.calendar, Calendar):
+                st.session_state.calendar = Calendar(owner_agent_id="agent-alpha")
+            else:
+                # Clear existing events if database is empty
+                st.session_state.calendar.events.clear()
+            return True
+    except Exception as e:
+        print(f"🔍 DEBUG: Error syncing calendar from database: {e}")
+        import traceback
+        traceback.print_exc()
+        # Don't raise - just return False so UI can continue
+        return False
+
+
 def refresh_calendar():
     """Update events data and force calendar refresh - ensures UI is synced with calendar object."""
+    # First, sync calendar from database to catch any changes made via MCP/A2A
+    sync_calendar_from_database()
     # Always sync from calendar object to UI
     update_events_data()
     # Increment refresh key to force calendar component to re-render
@@ -292,8 +335,16 @@ def update_events_data():
         
         status_value = get_status_value(event.status)
         status_key = status_value.lower() if status_value else "proposed"
+        
+        # Use meeting title if available, otherwise use partner + status
+        event_title = getattr(event, 'title', None)
+        if event_title:
+            event_title_display = f"{event_title} ({status_value})"
+        else:
+            event_title_display = f"{event.partner_agent_id} ({status_value})"
+        
         event_data = {
-            "title": f"{event.partner_agent_id} ({status_value})",
+            "title": event_title_display,
             "start": event.time.isoformat(),
             "end": end_time.isoformat(),
             "color": color_map.get(status_key, "#757575"),
@@ -301,7 +352,8 @@ def update_events_data():
                 "event_id": event.event_id,
                 "partner": event.partner_agent_id,
                 "status": status_value,
-                "duration": event.duration
+                "duration": event.duration,
+                "title": event_title
             }
         }
         events.append(event_data)
@@ -399,6 +451,12 @@ def booking_page():
             help="Select the duration for the meeting"
         )
         
+        meeting_title = st.text_input(
+            "Meeting Title",
+            placeholder="e.g., Project Review, Team Sync, etc.",
+            help="Optional title for the meeting"
+        )
+        
         message = st.text_area(
             "Optional Message",
             placeholder="Any additional information about the meeting...",
@@ -409,8 +467,14 @@ def booking_page():
         
         if submitted:
             if not partner_id:
-                st.error("❌ Please enter your Agent ID")
+                st.error("❌ **Request Failed:** Please enter your Agent ID")
             else:
+                # Initialize result tracking
+                request_success = False
+                error_message = None
+                event = None
+                event_datetime = None
+                
                 try:
                     event_datetime = datetime.combine(event_date, event_time)
                     
@@ -418,37 +482,137 @@ def booking_page():
                     prefs = st.session_state.preferences
                     matches_prefs = prefs.is_preferred_time(event_datetime)
                     
-                    # Create the event
-                    event = st.session_state.calendar.propose_event(
-                        time=event_datetime,
-                        duration=duration,
-                        partner_agent_id=partner_id
-                    )
+                    # Create the event with title
+                    try:
+                        event = st.session_state.calendar.propose_event(
+                            time=event_datetime,
+                            duration=duration,
+                            partner_agent_id=partner_id,
+                            title=meeting_title if meeting_title else None
+                        )
+                        print(f"🔍 DEBUG: Created event {event.event_id} with status: {get_status_value(event.status)}")
+                    except Exception as e:
+                        error_message = f"Failed to create event: {str(e)}"
+                        raise
                     
-                    st.success("✅ Meeting request submitted!")
+                    # Save to database first - check if it succeeded
+                    save_success = db_adapter.save_event(event)
+                    if not save_success:
+                        error_message = f"Failed to save event to database. Event ID: {event.event_id}"
+                        raise Exception(error_message)
                     
-                    # Refresh calendar to show new event
-                    refresh_calendar()
-                    
-                    # Save to database
-                    db_adapter.save_event(event)
                     print(f"🔍 DEBUG: Saved event {event.event_id} from booking page to database")
                     
-                    # Display event details
-                    st.info(f"""
-                    **Event ID:** `{event.event_id}`  
-                    **Time:** {event_datetime.strftime('%Y-%m-%d %H:%M')}  
-                    **Duration:** {duration}  
-                    **Status:** {get_status_value(event.status)}
+                    # Verify the event was saved by loading it back
+                    loaded_event = db_adapter.load_event(event.event_id, Event)
+                    if not loaded_event:
+                        error_message = f"Event was not found in database after saving! Event ID: {event.event_id}"
+                        raise Exception(error_message)
                     
-                    Your meeting request has been sent. You'll receive a confirmation once it's accepted.
-                    """)
+                    print(f"🔍 DEBUG: Verified event in database - Status: {get_status_value(loaded_event.status)}")
+                    
+                    # CRITICAL: Sync calendar from database and refresh UI
+                    # Clear sync throttle to ensure immediate sync when navigating to dashboard
+                    if 'last_calendar_sync' in st.session_state:
+                        del st.session_state.last_calendar_sync
+                    
+                    sync_calendar_from_database()
+                    refresh_calendar()
+                    
+                    # Mark as successful
+                    request_success = True
+                    
+                except Exception as e:
+                    # Capture any errors
+                    if not error_message:
+                        error_message = str(e)
+                    request_success = False
+                    print(f"🔍 DEBUG: Error during meeting request: {error_message}")
+                    import traceback
+                    traceback.print_exc()
+                
+                # Display result
+                st.markdown("---")
+                st.subheader("📊 Meeting Request Result")
+                
+                if request_success and event:
+                    # SUCCESS RESULT
+                    st.success("✅ **Meeting Request Submitted Successfully!**")
+                    
+                    # Display event details in a structured format
+                    with st.container():
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.markdown("**📋 Event Details:**")
+                            if meeting_title:
+                                st.write(f"**Title:** {meeting_title}")
+                            st.write(f"**Event ID:** `{event.event_id}`")
+                            st.write(f"**Status:** {get_status_value(event.status)}")
+                            st.write(f"**Partner Agent:** {partner_id}")
+                        
+                        with col2:
+                            st.markdown("**⏰ Time Information:**")
+                            st.write(f"**Date & Time:** {event_datetime.strftime('%Y-%m-%d %H:%M')}")
+                            st.write(f"**Duration:** {duration}")
+                            # Calculate end time
+                            duration_str = duration.lower().strip()
+                            if duration_str.endswith('m'):
+                                minutes = int(duration_str[:-1])
+                            elif duration_str.endswith('h'):
+                                minutes = int(duration_str[:-1]) * 60
+                            else:
+                                minutes = int(duration_str)
+                            end_time = event_datetime + timedelta(minutes=minutes)
+                            st.write(f"**End Time:** {end_time.strftime('%Y-%m-%d %H:%M')}")
+                    
+                    st.info("💡 Your meeting request has been sent. You'll receive a confirmation once it's accepted.")
                     
                     if not matches_prefs:
-                        st.warning(f"⚠️ Note: This time may not match the agent's preferred schedule ({prefs.preferred_start_hour}:00-{prefs.preferred_end_hour}:00 on {', '.join(prefs.preferred_days)})")
+                        st.warning(f"⚠️ **Note:** This time may not match the agent's preferred schedule ({prefs.preferred_start_hour}:00-{prefs.preferred_end_hour}:00 on {', '.join(prefs.preferred_days)})")
                     
-                except ValueError as e:
-                    st.error(f"❌ Error: {str(e)}")
+                    # Show recent events on this page
+                    st.markdown("---")
+                    st.subheader("📅 Your Recent Meeting Requests")
+                    recent_events = st.session_state.calendar.get_all_events()
+                    # Sort by creation time, newest first
+                    recent_events.sort(key=lambda x: x.created_at, reverse=True)
+                    # Show last 5 events
+                    if recent_events:
+                        for evt in recent_events[:5]:
+                            evt_title = getattr(evt, 'title', None)
+                            title_text = f"**{evt_title}** - " if evt_title else ""
+                            status_emoji = "✅" if get_status_value(evt.status).lower() == "accepted" else "⏳" if get_status_value(evt.status).lower() == "proposed" else "❌"
+                            st.markdown(f"{status_emoji} {title_text}{evt.partner_agent_id} on {evt.time.strftime('%Y-%m-%d %H:%M')} ({get_status_value(evt.status)})")
+                    else:
+                        st.info("No recent meeting requests found.")
+                    
+                else:
+                    # FAILURE RESULT
+                    st.error("❌ **Meeting Request Failed**")
+                    
+                    st.markdown("**Error Details:**")
+                    st.error(error_message if error_message else "Unknown error occurred")
+                    
+                    # Show what was attempted
+                    if event_datetime:
+                        st.markdown("**Attempted Request Details:**")
+                        st.write(f"- **Date & Time:** {event_datetime.strftime('%Y-%m-%d %H:%M')}")
+                        st.write(f"- **Duration:** {duration}")
+                        st.write(f"- **Partner Agent:** {partner_id}")
+                        if meeting_title:
+                            st.write(f"- **Title:** {meeting_title}")
+                    
+                    st.warning("⚠️ Please try again or contact support if the problem persists.")
+                    
+                    # Show error details in expander for debugging
+                    with st.expander("🔍 Technical Details", expanded=False):
+                        import traceback
+                        st.code(traceback.format_exc())
+                
+                # Force UI refresh to clear form state (only if successful)
+                if request_success:
+                    st.rerun()
     
     # Booking Links section
     st.markdown("---")
@@ -548,10 +712,16 @@ def booking_page():
     col1, col2 = st.columns(2)
     with col1:
         if st.button("📅 View Calendar", use_container_width=True):
+            # Clear sync throttle to ensure calendar syncs immediately on dashboard
+            if 'last_calendar_sync' in st.session_state:
+                del st.session_state.last_calendar_sync
             st.query_params.clear()
             st.rerun()
     with col2:
         if st.button("← Back to Dashboard", use_container_width=True):
+            # Clear sync throttle to ensure calendar syncs immediately on dashboard
+            if 'last_calendar_sync' in st.session_state:
+                del st.session_state.last_calendar_sync
             st.query_params.clear()
             st.rerun()
 
@@ -708,10 +878,14 @@ def agents_page():
 
 def use_agent_to_book_page():
     """Streamlit UI page for using an agent (via A2A or MCP) to book an invite."""
-    # Back to Dashboard button
+    # Back to Dashboard button - use query params to avoid hanging
     if st.button("← Back to Dashboard", key="back_to_dashboard_from_book", use_container_width=False):
+        # Clear query params - this will trigger a rerun automatically
+        # Don't do any sync/refresh operations here - they might hang
         st.query_params.clear()
+        # Force immediate rerun without any blocking operations
         st.rerun()
+        return  # Exit early to prevent further rendering
     
     st.title("🤝 Use Agent To Book Invite")
     st.markdown("Connect to an agent using their DID and book a meeting via A2A or MCP.")
@@ -806,8 +980,22 @@ def use_agent_to_book_page():
             st.error("❌ DID resolution not available. Please install required dependencies.")
     else:
         # Use cached endpoints if available and DID matches
+        print(f"[DEBUG] Checking cached endpoints:")
+        print(f"  - agent_did: {agent_did}")
+        print(f"  - st.session_state.resolved_did: {st.session_state.get('resolved_did')}")
+        print(f"  - st.session_state.a2a_endpoint: {st.session_state.get('a2a_endpoint')}")
+        print(f"  - Match: {st.session_state.get('resolved_did') == agent_did}")
+        
         if 'a2a_endpoint' in st.session_state and st.session_state.get('resolved_did') == agent_did:
             a2a_endpoint = st.session_state.a2a_endpoint
+            print(f"[DEBUG] ✅ Loaded a2a_endpoint from session_state: {a2a_endpoint}")
+        else:
+            print(f"[DEBUG] ⚠️ Could not load a2a_endpoint from session_state")
+            if 'a2a_endpoint' not in st.session_state:
+                print(f"[DEBUG]   - Reason: 'a2a_endpoint' not in session_state")
+            if st.session_state.get('resolved_did') != agent_did:
+                print(f"[DEBUG]   - Reason: resolved_did mismatch ({st.session_state.get('resolved_did')} != {agent_did})")
+        
         if 'mcp_endpoint' in st.session_state and st.session_state.get('resolved_did') == agent_did:
             mcp_endpoint = st.session_state.mcp_endpoint
     
@@ -1006,6 +1194,11 @@ Chat enabled: {chat_enabled_a2a}
                             'role': 'assistant',
                             'content': response_text
                         })
+                        
+                        # CRITICAL: Sync calendar from database after A2A message
+                        # (in case the agent booked a meeting)
+                        sync_calendar_from_database()
+                        refresh_calendar()
                     except ExceptionGroup as eg:
                         # Handle ExceptionGroup (TaskGroup errors)
                         error_details = []
@@ -1101,7 +1294,42 @@ Error type: {error_type}
                 )
             
             # Automate button (visible, above Clear Chat)
-            if st.button("🤖 Automate", type="primary", use_container_width=True, key="automate_button_in_chat"):
+            automate_clicked = st.button("🤖 Automate", type="primary", use_container_width=True, key="automate_button_in_chat")
+            
+            # Progress section - appears below the button
+            # Initialize progress tracking in session state
+            if 'automation_progress' not in st.session_state:
+                st.session_state.automation_progress = {
+                    'turn': 0,
+                    'status': 'idle',
+                    'message': '',
+                    'progress': 0.0
+                }
+            
+            # Show progress section if automation is running or was clicked
+            if automate_clicked or st.session_state.automation_progress.get('status') != 'idle':
+                st.markdown("---")
+                st.subheader("🤖 Automated Booking Progress")
+                
+                progress_bar = st.progress(st.session_state.automation_progress.get('progress', 0.0))
+                status_text = st.empty()
+                
+                # Show current progress if available
+                progress_info = st.session_state.automation_progress
+                if progress_info.get('status') == 'starting' or progress_info.get('status') == 'idle':
+                    status_text.markdown("**Initializing automated booking...**")
+                else:
+                    status_text.markdown(f"**Turn {progress_info.get('turn', 0)}/5:** {progress_info.get('message', 'Processing...')}")
+                
+                # Create a placeholder for real-time updates
+                update_placeholder = st.empty()
+            else:
+                # Create empty placeholders that won't be used
+                progress_bar = None
+                status_text = None
+                update_placeholder = None
+            
+            if automate_clicked:
                 print("\n" + "="*80)
                 print("[UI] 🚀 AUTOMATE BUTTON CLICKED IN A2A CHAT!")
                 print("="*80)
@@ -1150,17 +1378,51 @@ Error type: {error_type}
                 )
                 print(f"[UI] ✓ Created MeetingPreferences: {preferences}")
                 
-                # Create status container
-                status_container = st.container()
-                progress_bar = st.progress(0)
-                status_text = st.empty()
                 print("[UI] ✓ Created Streamlit UI elements (progress bar, status text)")
                 
-                # Progress callback
+                # Progress callback that updates session state and UI
+                # Note: progress_bar and status_text are defined above, outside the button handler
                 async def update_progress(turn: int, status: str, message: str):
-                    progress = turn / 5  # Max 5 turns
-                    progress_bar.progress(min(progress, 1.0))
-                    status_text.markdown(f"**Turn {turn}/5:** {message}")
+                    progress = turn / 5.0  # Max 5 turns
+                    
+                    # Update session state
+                    st.session_state.automation_progress = {
+                        'turn': turn,
+                        'status': status,
+                        'message': message,
+                        'progress': min(progress, 1.0)
+                    }
+                    
+                    # Update UI immediately (these are defined in the outer scope)
+                    # Use the progress_bar and status_text from the outer scope
+                    if progress_bar is not None:
+                        progress_bar.progress(min(progress, 1.0))
+                    
+                    # Special handling for handover status
+                    if status_text is not None:
+                        if status == "handover":
+                            status_text.markdown(f"**🤖 Agent Handover:** {message}")
+                            if update_placeholder is not None:
+                                update_placeholder.info("🤖 **Agent has taken control** - continuing autonomously...")
+                        elif status == "starting":
+                            status_text.markdown(f"**🚀 Starting:** {message}")
+                        elif status == "initializing":
+                            status_text.markdown(f"**⚙️ Initializing:** {message}")
+                        elif status == "thinking":
+                            status_text.markdown(f"**🤔 Turn {turn}/5:** {message}")
+                        elif status == "sending":
+                            status_text.markdown(f"**📤 Turn {turn}/5:** {message}")
+                        elif status == "received":
+                            status_text.markdown(f"**📥 Turn {turn}/5:** {message}")
+                        elif status == "complete":
+                            status_text.markdown(f"**✅ Complete:** {message}")
+                        elif status == "error":
+                            status_text.markdown(f"**❌ Error:** {message}")
+                        else:
+                            status_text.markdown(f"**Turn {turn}/5:** {message}")
+                    
+                    # Force a small delay to allow UI to update
+                    await asyncio.sleep(0.1)
                 
                 # Get or create booking agent
                 print("[UI] Checking for existing booking agent...")
@@ -1213,34 +1475,87 @@ Always prioritize the user's preferences while being flexible to find workable s
                     nest_asyncio.apply()
                     print(f"[UI] ✓ nest_asyncio applied")
                     
+                    # Update UI immediately before starting
+                    status_text.markdown("**🚀 Starting booking automation...**")
+                    progress_bar.progress(0.1)
+                    st.info("⏳ **Note:** Progress updates will appear below. The automation is running...")
+                    
                     loop = asyncio.get_event_loop()
                     print(f"[UI] ✓ Got event loop: {loop}")
+                    
+                    # DEBUG: Check a2a_endpoint value before using it
+                    print(f"[DEBUG] ===== AUTOMATE BUTTON - ENDPOINT CHECK =====")
+                    print(f"[DEBUG] a2a_endpoint variable: {a2a_endpoint}")
+                    print(f"[DEBUG] a2a_endpoint type: {type(a2a_endpoint)}")
+                    print(f"[DEBUG] st.session_state.a2a_endpoint: {st.session_state.get('a2a_endpoint')}")
+                    print(f"[DEBUG] st.session_state.resolved_did: {st.session_state.get('resolved_did')}")
+                    print(f"[DEBUG] agent_did: {agent_did}")
+                    print(f"[DEBUG] ============================================")
+                    
+                    # Ensure we're using the correct endpoint from session state
+                    if not a2a_endpoint and 'a2a_endpoint' in st.session_state:
+                        a2a_endpoint = st.session_state.a2a_endpoint
+                        print(f"[DEBUG] ⚠️ a2a_endpoint was None, reloaded from session_state: {a2a_endpoint}")
+                    
                     print(f"[UI] 🚀 Calling automation.book_meeting()...")
                     print(f"[UI]    - target_agent_endpoint: {a2a_endpoint}")
                     print(f"[UI]    - target_agent_did: {agent_did}")
                     print(f"[UI]    - preferences: {preferences}")
                     print(f"[UI] ⏳ Running async function with loop.run_until_complete()...")
                     
-                    result = loop.run_until_complete(
-                        automation.book_meeting(
-                            target_agent_endpoint=a2a_endpoint,
-                            target_agent_did=agent_did,
-                            preferences=preferences,
-                            booking_agent=st.session_state.booking_agent,
-                            progress_callback=update_progress
+                    # Note: Streamlit UI updates during blocking operations may not be visible
+                    # until the function completes. We'll show the final state clearly.
+                    try:
+                        # Add overall timeout (2 minutes) to prevent indefinite hangs
+                        result = loop.run_until_complete(
+                            asyncio.wait_for(
+                                automation.book_meeting(
+                                    target_agent_endpoint=a2a_endpoint,
+                                    target_agent_did=agent_did,
+                                    preferences=preferences,
+                                    booking_agent=st.session_state.booking_agent,
+                                    progress_callback=update_progress,
+                                    overall_timeout=120.0  # 2 minutes
+                                ),
+                                timeout=130.0  # Slightly longer than internal timeout for safety
+                            )
                         )
-                    )
+                    except Exception as e:
+                        # Update UI on error
+                        status_text.markdown(f"**❌ Error:** {str(e)}")
+                        progress_bar.progress(0.0)
+                        raise
+                    
                     print(f"[UI] ✅ automation.book_meeting() completed!")
                     print(f"[UI] Result: {result}")
                     
+                    # CRITICAL: Sync calendar from database to show any events that were booked
+                    print(f"[UI] Syncing calendar from database after booking...")
+                    sync_calendar_from_database()
+                    refresh_calendar()
+                    print(f"[UI] ✅ Calendar synced and refreshed")
+                    
+                    # Clear the update placeholder
+                    update_placeholder.empty()
+                    
                     # Display result
                     progress_bar.progress(1.0)
+                    status_text.markdown("**✅ Booking automation completed!**")
+                    
+                    # Show handover indicator if it occurred
+                    if result.get('handover_occurred'):
+                        st.info("🤖 **Handover occurred** - Agent completed booking autonomously")
+                    
+                    # Show final result
+                    st.markdown("---")
+                    st.subheader("📊 Booking Result")
                     
                     if result['success']:
                         st.success(f"✅ {result['message']}")
                         
                         if result.get('booking_details'):
-                            st.json(result['booking_details'])
+                            with st.expander("📋 Booking Details", expanded=True):
+                                st.json(result['booking_details'])
                     else:
                         st.error(f"❌ {result['message']}")
                     
@@ -1253,6 +1568,9 @@ Always prioritize the user's preferences while being flexible to find workable s
                             st.markdown(f"**Sent:** {turn.message_sent}")
                             st.markdown(f"**Received:** {turn.response_received}")
                             st.markdown("---")
+                    
+                    # Force UI refresh to show new events
+                    st.rerun()
                 
                 except Exception as e:
                     progress_bar.progress(0.0)
@@ -1426,6 +1744,11 @@ Always prioritize the user's preferences while being flexible to find workable s
                             'role': 'assistant',
                             'content': response
                         })
+                        
+                        # CRITICAL: Sync calendar from database after MCP message
+                        # (in case the agent booked a meeting)
+                        sync_calendar_from_database()
+                        refresh_calendar()
                     except ExceptionGroup as eg:
                         # Handle ExceptionGroup (TaskGroup errors)
                         error_details = []
@@ -2076,38 +2399,31 @@ def main():
     
     # Ensure calendar is properly initialized and synced with database
     # The calendar should already be initialized at the top level, but ensure it's synced
-    if 'calendar' not in st.session_state or not isinstance(st.session_state.calendar, Calendar):
-        # Calendar was somehow lost - reload from database
-        saved_events = db_adapter.load_all_events(Event, EventStatus)
-        st.session_state.calendar = Calendar(owner_agent_id="agent-alpha")
-        
-        # Restore events from database
-        if saved_events:
-            for event in saved_events:
-                if isinstance(event.status, str) and hasattr(EventStatus, event.status.upper()):
-                    try:
-                        event.status = EventStatus[event.status.upper()]
-                    except:
-                        pass
-                st.session_state.calendar.events[event.event_id] = event
-            print(f"🔍 DEBUG: Dashboard - Reloaded {len(saved_events)} events from database")
-    else:
-        # Calendar exists - sync with database to ensure we have latest events
-        # This ensures any changes made via MCP/A2A are reflected
-        saved_events = db_adapter.load_all_events(Event, EventStatus)
-        if saved_events:
-            # Merge database events into calendar (don't replace, merge)
-            for event in saved_events:
-                if isinstance(event.status, str) and hasattr(EventStatus, event.status.upper()):
-                    try:
-                        event.status = EventStatus[event.status.upper()]
-                    except:
-                        pass
-                # Add or update event (preserves any in-memory changes)
-                st.session_state.calendar.events[event.event_id] = event
+    # Use the sync function to ensure we have the latest events from database
+    # Wrap in try-except to prevent hanging if sync fails - make it non-blocking
+    try:
+        # Only sync if we haven't synced recently (avoid blocking on every page load)
+        if 'last_calendar_sync' not in st.session_state:
+            sync_calendar_from_database()
+            st.session_state.last_calendar_sync = datetime.now()
+        else:
+            # Only sync if it's been more than 1 second since last sync
+            last_sync = st.session_state.last_calendar_sync
+            if isinstance(last_sync, datetime):
+                time_since_sync = (datetime.now() - last_sync).total_seconds()
+                if time_since_sync > 1.0:  # Sync at most once per second
+                    sync_calendar_from_database()
+                    st.session_state.last_calendar_sync = datetime.now()
+    except Exception as e:
+        print(f"⚠️ Error syncing calendar from database: {e}")
+        # Continue anyway - calendar might still work
     
     # Sync UI with calendar object
-    update_events_data()
+    try:
+        update_events_data()
+    except Exception as e:
+        print(f"⚠️ Error updating events data: {e}")
+        # Continue anyway
     
     if 'preferences' not in st.session_state or not isinstance(st.session_state.preferences, BookingPreferences):
         st.session_state.preferences = BookingPreferences()

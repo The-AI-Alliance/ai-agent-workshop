@@ -22,6 +22,7 @@ class Event(pydantic.BaseModel):
     duration: str  # e.g., "30m", "1h", "45m"
     status: EventStatus = EventStatus.PROPOSED
     partner_agent_id: str
+    title: Optional[str] = None  # Optional meeting title
     created_at: datetime = pydantic.Field(default_factory=datetime.utcnow)
     updated_at: datetime = pydantic.Field(default_factory=datetime.utcnow)
     
@@ -72,6 +73,7 @@ class Event(pydantic.BaseModel):
             "duration": self.duration,
             "status": status_str,
             "partner_agent_id": self.partner_agent_id,
+            "title": self.title,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat()
         }
@@ -149,13 +151,14 @@ class Calendar:
             if event.status in [EventStatus.CONFIRMED, EventStatus.BOOKED]
         ]
     
-    def propose_event(self, time: datetime, duration: str, partner_agent_id: str) -> Event:
+    def propose_event(self, time: datetime, duration: str, partner_agent_id: str, title: Optional[str] = None) -> Event:
         """Propose a new meeting event."""
         event = Event(
             time=time,
             duration=duration,
             partner_agent_id=partner_agent_id,
-            status=EventStatus.PROPOSED
+            status=EventStatus.PROPOSED,
+            title=title
         )
         return self.add_event(event)
     
