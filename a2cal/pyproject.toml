@@ -1,11 +1,12 @@
 [project]
 name = "a2cal"
 version = "0.1.0"
-description = "Agent Calendar App"
+description = "Agent Calendar App - Autonomous AI agent system for calendar management and meeting coordination"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.10"
 dependencies = [
-    "a2a-sdk[sql]>=0.3.0",
+    "a2a-sdk[http-server,sql]>=0.3.0",
+    "base58>=2.1.1",
     "click>=8.1.8",
     "fastmcp>=1.0",
     "google-adk>=1.0.0",
@@ -15,17 +16,32 @@ dependencies = [
     "langchain-google-genai>=2.0.10",
     "langchain-mcp-adapters>=0.0.9",
     "langgraph>=0.4.1",
+    "litellm>=1.0.0",
     "mcp[cli]>=1.5.0",
     "nest-asyncio>=1.6.0",
     "networkx>=3.4.2",
     "numpy>=2.2.5",
+    "openai>=1.0.0",
     "pandas>=2.2.3",
+    "Pillow>=10.0.0",
     "pydantic>=2.11.4",
-    "litellm",
+    "pyngrok>=7.0.0",
+    "python-dotenv>=1.0.0",
+    "qrcode>=7.4.2",
+    "streamlit>=1.28.0",
+    "streamlit-calendar>=0.1.7",
+    "uvicorn>=0.23.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
 ]
 
 [project.scripts]
-a2a-mcp = "a2cal:main"
+a2cal = "src.main:main"
 
 [build-system]
 requires = ["hatchling"]

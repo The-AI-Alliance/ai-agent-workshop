@@ -66,7 +66,21 @@ def register_tools(
         logger.debug(
             f'Found best match at index {best_match_index} with score {dot_products[best_match_index]}'
         )
-        return df.iloc[best_match_index]['agent_card']
+
+        # Format agent card into a conversational response
+        agent_card = df.iloc[best_match_index]['agent_card']
+
+        response = f"I am the {agent_card['name']}. {agent_card['description']}\n\n"
+        response += "I can help you with:\n"
+
+        for skill in agent_card['skills']:
+            response += f"- {skill['name']}: {skill['description']}\n"
+
+        response += f"\nI have access to {len(agent_card['tools'])} tools: "
+        response += ", ".join(tool['name'] for tool in agent_card['tools'])
+        response += "."
+
+        return response
 
     @mcp.tool()
     def requestAvailableSlots(start_date: str, end_date: str, duration: str = "30m") -> dict:

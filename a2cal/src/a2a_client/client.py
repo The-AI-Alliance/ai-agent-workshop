@@ -2,9 +2,52 @@
 import asyncio
 import logging
 from uuid import uuid4
+from pathlib import Path
 
-# Initialize logger first
+# Initialize logger with file handler ONLY (no stderr/stdout to avoid broken pipe)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logger.handlers = []  # Remove any default handlers
+logger.propagate = False  # Don't propagate to parent loggers (which might have stderr handlers)
+
+# Add file handler for debugging (don't use stderr to avoid broken pipe)
+# Wrap in try-except so logging failures don't crash the client
+try:
+    log_file = Path("/tmp/a2a_client.log")
+    file_handler = logging.FileHandler(log_file, mode='a')
+    file_handler.setLevel(logging.DEBUG)
+    file_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', datefmt='%H:%M:%S')
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
+except Exception:
+    # If we can't set up logging, continue without it
+    # Add a null handler to prevent "No handlers" warnings
+    logger.addHandler(logging.NullHandler())
+
+# Create safe logging functions that never raise exceptions
+def safe_log_debug(msg):
+    try:
+        logger.debug(msg)
+    except:
+        pass
+
+def safe_log_info(msg):
+    try:
+        logger.info(msg)
+    except:
+        pass
+
+def safe_log_warning(msg):
+    try:
+        logger.warning(msg)
+    except:
+        pass
+
+def safe_log_error(msg):
+    try:
+        logger.error(msg)
+    except:
+        pass
 
 # Try to import required dependencies
 A2A_SDK_AVAILABLE = False
@@ -26,14 +69,14 @@ TextPart = None
 
 try:
     import sys
-    logger.debug(f"Python executable: {sys.executable}")
-    logger.debug(f"Python path: {sys.path[:3]}")
+    safe_log_debug(f"Python executable: {sys.executable}")
+    safe_log_debug(f"Python path: {sys.path[:3]}")
     
     import httpx
-    logger.debug("✓ httpx imported successfully")
+    safe_log_debug("✓ httpx imported successfully")
     
     from a2a.client import A2ACardResolver, A2AClient
-    logger.debug("✓ a2a.client imported successfully")
+    safe_log_debug("✓ a2a.client imported successfully")
     
     from a2a.types import (
         AgentCard,
@@ -49,27 +92,27 @@ try:
         TaskStatusUpdateEvent,
         TextPart,
     )
-    logger.debug("✓ a2a.types imported successfully")
+    safe_log_debug("✓ a2a.types imported successfully")
     
     A2A_SDK_AVAILABLE = True
-    logger.info("✅ A2A SDK is available and ready to use")
+    safe_log_info("✅ A2A SDK is available and ready to use")
 except ImportError as e:
     A2A_SDK_AVAILABLE = False
     _import_error = e
     import sys
-    logger.error(f"❌ Failed to import A2A SDK: {e}")
-    logger.error(f"   Error type: {type(e).__name__}")
-    logger.error(f"   Python executable: {sys.executable}")
+    safe_log_error(f"❌ Failed to import A2A SDK: {e}")
+    safe_log_error(f"   Error type: {type(e).__name__}")
+    safe_log_error(f"   Python executable: {sys.executable}")
     import traceback
-    logger.debug(f"   Full traceback:\n{traceback.format_exc()}")
+    safe_log_debug(f"   Full traceback:\n{traceback.format_exc()}")
 except Exception as e:
     A2A_SDK_AVAILABLE = False
     _import_error = e
     import sys
-    logger.error(f"❌ Unexpected error importing A2A SDK: {e}")
-    logger.error(f"   Python executable: {sys.executable}")
+    safe_log_error(f"❌ Unexpected error importing A2A SDK: {e}")
+    safe_log_error(f"   Python executable: {sys.executable}")
     import traceback
-    logger.debug(f"   Full traceback:\n{traceback.format_exc()}")
+    safe_log_debug(f"   Full traceback:\n{traceback.format_exc()}")
 
 
 async def get_agent_card_from_url(endpoint_url: str) -> AgentCard:
@@ -91,18 +134,18 @@ async def get_agent_card_from_url(endpoint_url: str) -> AgentCard:
             "pip install 'a2a-sdk[http-server]' or uv add 'a2a-sdk[http-server]'"
         ) from _import_error
     
-    logger.info(f"Fetching agent card from base URL: {endpoint_url}")
+    safe_log_info(f"Fetching agent card from base URL: {endpoint_url}")
     
     async with httpx.AsyncClient(timeout=30.0) as httpx_client:
         card_resolver = A2ACardResolver(httpx_client, endpoint_url)
         # A2ACardResolver will construct the agent card URL automatically
         # It typically looks for: {endpoint_url}/.well-known/agent-card.json
         expected_card_url = f"{endpoint_url.rstrip('/')}/.well-known/agent-card.json"
-        logger.info(f"Expected agent card URL: {expected_card_url}")
+        safe_log_info(f"Expected agent card URL: {expected_card_url}")
         card = await card_resolver.get_agent_card()
-        logger.info(f"✅ Agent card fetched successfully")
-        logger.debug(f"Agent card name: {card.name if hasattr(card, 'name') else 'unknown'}")
-        logger.debug(f"Agent card URL: {card.url if hasattr(card, 'url') else 'unknown'}")
+        safe_log_info(f"✅ Agent card fetched successfully")
+        safe_log_debug(f"Agent card name: {card.name if hasattr(card, 'name') else 'unknown'}")
+        safe_log_debug(f"Agent card URL: {card.url if hasattr(card, 'url') else 'unknown'}")
         return card
 
 
@@ -112,7 +155,7 @@ async def send_message_to_a2a_agent(
     context_id: str = None,
     task_id: str = None,
     use_streaming: bool = True,
-) -> str:
+) -> tuple[str, str]:
     """Send a message to an A2A agent and get a response.
     
     Args:
@@ -132,23 +175,29 @@ async def send_message_to_a2a_agent(
     import sys
     
     # CRITICAL: Print to stdout to ensure we see it
-    print("\n" + "="*80)
-    print("🚨 A2A CLIENT FUNCTION CALLED")
-    print(f"Endpoint: {endpoint_url}")
-    print(f"Message: {message_text[:50]}...")
-    print(f"A2A_SDK_AVAILABLE: {A2A_SDK_AVAILABLE}")
-    print("="*80 + "\n")
+    safe_log_info("="*80)
+    safe_log_info("🚨 A2A CLIENT FUNCTION CALLED")
+    safe_log_info(f"Endpoint: {endpoint_url}")
+    safe_log_info(f"Message: {message_text[:50]}...")
+    safe_log_info(f"A2A_SDK_AVAILABLE: {A2A_SDK_AVAILABLE}")
+    safe_log_info("="*80)
     
-    logger.info("="*80)
-    logger.info(f"🚨 A2A CLIENT FUNCTION CALLED")
-    logger.info(f"  - endpoint_url: {endpoint_url}")
-    logger.info(f"  - message: {message_text[:50]}...")
-    logger.info(f"  - A2A_SDK_AVAILABLE: {A2A_SDK_AVAILABLE}")
-    logger.info(f"  - Python executable: {sys.executable}")
-    logger.info(f"  - httpx available: {httpx is not None}")
-    logger.info(f"  - A2AClient available: {A2AClient is not None}")
-    logger.info("="*80)
+    safe_log_info("="*80)
+    safe_log_info(f"🚨 A2A CLIENT FUNCTION CALLED")
+    safe_log_info(f"  - endpoint_url: {endpoint_url}")
+    safe_log_info(f"  - message: {message_text[:50]}...")
+    safe_log_info(f"  - A2A_SDK_AVAILABLE: {A2A_SDK_AVAILABLE}")
+    safe_log_info(f"  - Python executable: {sys.executable}")
+    safe_log_info(f"  - httpx available: {httpx is not None}")
+    safe_log_info(f"  - A2AClient available: {A2AClient is not None}")
+    safe_log_info("="*80)
     
+    # Ensure log file exists at start of call
+    try:
+        Path("/tmp/a2a_client.log").touch(exist_ok=True)
+    except:
+        pass  # If we can't create it, continue without logging
+
     if not A2A_SDK_AVAILABLE:
         error_msg = (
             f"a2a-sdk is not installed. Please install it with: "
@@ -158,7 +207,7 @@ async def send_message_to_a2a_agent(
             f"  - Import error: {_import_error}\n"
             f"  - Error type: {type(_import_error).__name__ if _import_error else 'None'}"
         )
-        logger.error(error_msg)
+        safe_log_error(error_msg)
         raise ImportError(error_msg) from _import_error
     # Generate IDs if not provided
     if not context_id:
@@ -168,14 +217,14 @@ async def send_message_to_a2a_agent(
     message_id = str(uuid4())
     
     # Fetch agent card using A2ACardResolver
-    logger.info(f"📡 Connecting to A2A agent at base URL: {endpoint_url}")
+    safe_log_info(f"📡 Connecting to A2A agent at base URL: {endpoint_url}")
     expected_card_url = f"{endpoint_url.rstrip('/')}/.well-known/agent-card.json"
-    logger.info(f"📋 Agent card will be fetched from: {expected_card_url}")
+    safe_log_info(f"📋 Agent card will be fetched from: {expected_card_url}")
     
     async with httpx.AsyncClient(timeout=60.0) as httpx_client:
         card_resolver = A2ACardResolver(httpx_client, endpoint_url)
         agent_card = await card_resolver.get_agent_card()
-        logger.info(f"✅ Agent card fetched: {agent_card.name if hasattr(agent_card, 'name') else 'unknown'}")
+        safe_log_info(f"✅ Agent card fetched: {agent_card.name if hasattr(agent_card, 'name') else 'unknown'}")
         
         # Check if agent supports streaming
         supports_streaming = (
@@ -187,12 +236,12 @@ async def send_message_to_a2a_agent(
         # Determine the message endpoint URL
         # A2AClient uses the agent_card.url or constructs from the base URL
         message_endpoint = agent_card.url if hasattr(agent_card, 'url') and agent_card.url else endpoint_url
-        logger.info("\n" + "="*70)
-        logger.info("📤 SENDING MESSAGE TO A2A AGENT")
-        logger.info(f"🌐 Endpoint: {message_endpoint}")
-        logger.info(f"💬 Message: {message_text[:100]}..." if len(message_text) > 100 else f"💬 Message: {message_text}")
-        logger.info(f"📡 Streaming: {supports_streaming}")
-        logger.info("="*70)
+        safe_log_info("\n" + "="*70)
+        safe_log_info("📤 SENDING MESSAGE TO A2A AGENT")
+        safe_log_info(f"🌐 Endpoint: {message_endpoint}")
+        safe_log_info(f"💬 Message: {message_text[:100]}..." if len(message_text) > 100 else f"💬 Message: {message_text}")
+        safe_log_info(f"📡 Streaming: {supports_streaming}")
+        safe_log_info("="*70)
         
         a2a_client = A2AClient(httpx_client, agent_card=agent_card)
         
@@ -208,7 +257,9 @@ async def send_message_to_a2a_agent(
         message_payload = MessageSendParams(id=str(uuid4()), message=message)
         
         response_text = ""
-        raw_chunks_debug = []  # Store raw chunks for debugging
+        # raw_chunks_debug disabled to avoid broken pipe errors
+        raw_chunks_debug = []
+        extracted_context_id = context_id  # Start with provided context_id, extract from response if available
         
         if supports_streaming:
             # Use streaming (matching reference implementation)
@@ -217,214 +268,194 @@ async def send_message_to_a2a_agent(
                 params=message_payload
             )
             
-            logger.info("\n" + "="*70)
-            logger.info("📤 SENDING STREAMING REQUEST")
-            logger.info("="*70)
+            safe_log_info("\n" + "="*70)
+            safe_log_info("📤 SENDING STREAMING REQUEST")
+            safe_log_info("="*70)
             
             response_stream = a2a_client.send_message_streaming(request)
             
-            logger.info("\n" + "="*70)
-            logger.info("📥 RECEIVING STREAMING RESPONSE")
-            logger.info("="*70)
+            safe_log_info("\n" + "="*70)
+            safe_log_info("📥 RECEIVING STREAMING RESPONSE")
+            safe_log_info("="*70)
             
             chunk_count = 0
             async for chunk in response_stream:
-                # Store raw chunk for debugging
-                try:
-                    if hasattr(chunk, 'model_dump'):
-                        raw_chunks_debug.append({
-                            'type': type(chunk).__name__,
-                            'data': chunk.model_dump()
-                        })
-                    else:
-                        raw_chunks_debug.append({
-                            'type': type(chunk).__name__,
-                            'data': str(chunk)[:500]
-                        })
-                except:
-                    raw_chunks_debug.append({
-                        'type': type(chunk).__name__,
-                        'data': 'Could not serialize'
-                    })
+                # Skip debug tracking to avoid broken pipe errors
+                # (chunk object's __str__ can trigger broken pipe)
                 chunk_count += 1
                 
-                # Print to stderr so it shows in Streamlit
-                import sys
-                print(f"\n{'='*70}", file=sys.stderr)
-                print(f"📦 RAW CHUNK #{chunk_count}", file=sys.stderr)
-                print(f"Type: {type(chunk)}", file=sys.stderr)
-                print(f"{'='*70}\n", file=sys.stderr)
-                
-                logger.info("\n" + "="*70)
-                logger.info(f"📦 RAW CHUNK #{chunk_count}")
-                logger.info("="*70)
-                logger.info(f"Type: {type(chunk)}")
-                logger.info(f"Chunk: {chunk}")
-                
-                # Try to dump it
+                # Log chunk details to file (handle broken pipe)
                 try:
-                    if hasattr(chunk, 'model_dump'):
-                        import json
-                        dumped = json.dumps(chunk.model_dump(), indent=2, default=str)
-                        logger.info(f"Dumped: {dumped}")
-                        print(f"Dumped structure: {dumped[:500]}...", file=sys.stderr)
-                    elif hasattr(chunk, '__dict__'):
-                        logger.info(f"Dict: {chunk.__dict__}")
-                        print(f"Dict: {chunk.__dict__}", file=sys.stderr)
-                except Exception as e:
-                    logger.info(f"Could not dump: {e}")
-                    print(f"Could not dump: {e}", file=sys.stderr)
-                
-                logger.info("="*70 + "\n")
+                    safe_log_debug("="*70)
+                    safe_log_debug(f"📦 RAW CHUNK #{chunk_count}")
+                    safe_log_debug(f"Type: {type(chunk)}")
+                    safe_log_debug(f"Chunk: {chunk}")
+
+                    # Try to dump it
+                    try:
+                        if hasattr(chunk, 'model_dump'):
+                            import json
+                            dumped = json.dumps(chunk.model_dump(), indent=2, default=str)
+                            safe_log_debug(f"Dumped structure: {dumped[:500]}...")
+                        elif hasattr(chunk, '__dict__'):
+                            safe_log_debug(f"Dict: {chunk.__dict__}")
+                    except Exception as e:
+                        safe_log_debug(f"Could not dump: {e}")
+
+                    safe_log_debug("="*70)
+                except (BrokenPipeError, OSError):
+                    # Broken pipe during logging - skip this chunk's debug info
+                    pass
                 
                 # NEW: Direct parsing of the actual structure we're receiving
                 # Based on debug file: chunk.data.result contains the event
                 result_data = None
                 
                 # Debug: Check what attributes chunk actually has
-                logger.info(f"🔍 Chunk type: {type(chunk)}")
-                logger.info(f"🔍 Has 'data': {hasattr(chunk, 'data')}")
-                logger.info(f"🔍 Has 'result': {hasattr(chunk, 'result')}")
-                logger.info(f"🔍 Is dict: {isinstance(chunk, dict)}")
+                safe_log_info(f"🔍 Chunk type: {type(chunk)}")
+                safe_log_info(f"🔍 Has 'data': {hasattr(chunk, 'data')}")
+                safe_log_info(f"🔍 Has 'result': {hasattr(chunk, 'result')}")
+                safe_log_info(f"🔍 Is dict: {isinstance(chunk, dict)}")
                 
                 # Check what attributes it ACTUALLY has
                 if hasattr(chunk, '__dict__'):
-                    logger.info(f"🔍 Actual attributes: {list(chunk.__dict__.keys())}")
+                    safe_log_info(f"🔍 Actual attributes: {list(chunk.__dict__.keys())}")
                 if hasattr(chunk, 'model_fields'):
-                    logger.info(f"🔍 Model fields: {list(chunk.model_fields.keys())}")
+                    safe_log_info(f"🔍 Model fields: {list(chunk.model_fields.keys())}")
                 
                 # BETTER APPROACH: Convert chunk to dict using model_dump(), then parse
                 chunk_dict = None
                 try:
                     if hasattr(chunk, 'model_dump'):
                         chunk_dict = chunk.model_dump()
-                        logger.info(f"✅ Converted chunk to dict using model_dump()")
-                        logger.info(f"🔍 Dict keys: {list(chunk_dict.keys())}")
+                        safe_log_info(f"✅ Converted chunk to dict using model_dump()")
+                        safe_log_info(f"🔍 Dict keys: {list(chunk_dict.keys())}")
                     elif isinstance(chunk, dict):
                         chunk_dict = chunk
-                        logger.info(f"✅ Chunk is already a dict")
+                        safe_log_info(f"✅ Chunk is already a dict")
                 except Exception as e:
-                    logger.error(f"❌ Could not convert chunk to dict: {e}")
+                    safe_log_error(f"❌ Could not convert chunk to dict: {e}")
                 
                 # Extract result from the dict
                 if chunk_dict:
                     if 'data' in chunk_dict and isinstance(chunk_dict['data'], dict):
                         if 'result' in chunk_dict['data']:
                             result_data = chunk_dict['data']['result']
-                            logger.info(f"✅ Got result_data from chunk_dict['data']['result']")
+                            safe_log_info(f"✅ Got result_data from chunk_dict['data']['result']")
                     elif 'result' in chunk_dict:
                         result_data = chunk_dict['result']
-                        logger.info(f"✅ Got result_data from chunk_dict['result']")
+                        safe_log_info(f"✅ Got result_data from chunk_dict['result']")
                 
                 # Old approach as fallback
                 if not result_data:
                     # Try to get result from chunk.data.result (as seen in debug file)
                     if hasattr(chunk, 'data'):
-                        logger.info(f"🔍 chunk.data type: {type(chunk.data)}")
-                        logger.info(f"🔍 chunk.data has 'result': {hasattr(chunk.data, 'result')}")
+                        safe_log_info(f"🔍 chunk.data type: {type(chunk.data)}")
+                        safe_log_info(f"🔍 chunk.data has 'result': {hasattr(chunk.data, 'result')}")
                         
                         if hasattr(chunk.data, 'result'):
                             result_data = chunk.data.result
-                            logger.info(f"✅ Got result_data from chunk.data.result")
+                            safe_log_info(f"✅ Got result_data from chunk.data.result")
                         elif isinstance(chunk.data, dict) and 'result' in chunk.data:
                             result_data = chunk.data['result']
-                            logger.info(f"✅ Got result_data from chunk.data['result']")
+                            safe_log_info(f"✅ Got result_data from chunk.data['result']")
                     
                     # Fallback: try chunk.result directly
                     if not result_data and hasattr(chunk, 'result'):
                         result_data = chunk.result
-                        logger.info(f"✅ Got result_data from chunk.result")
+                        safe_log_info(f"✅ Got result_data from chunk.result")
                     
                     # Fallback: try dict access
                     if not result_data and isinstance(chunk, dict) and 'result' in chunk:
                         result_data = chunk['result']
-                        logger.info(f"✅ Got result_data from chunk['result']")
+                        safe_log_info(f"✅ Got result_data from chunk['result']")
                 
                 if result_data:
-                    logger.info(f"🎯 result_data type: {type(result_data)}")
-                    logger.info(f"🎯 result_data has 'kind': {hasattr(result_data, 'kind')}")
+                    safe_log_info(f"🎯 result_data type: {type(result_data)}")
+                    safe_log_info(f"🎯 result_data has 'kind': {hasattr(result_data, 'kind')}")
+                    
+                    # Extract contextId from result_data for conversation continuity
+                    if isinstance(result_data, dict):
+                        if 'contextId' in result_data:
+                            extracted_context_id = result_data['contextId']
+                            safe_log_info(f"✅ Extracted contextId from result_data: {extracted_context_id}")
+                    elif hasattr(result_data, 'contextId'):
+                        extracted_context_id = result_data.contextId
+                        safe_log_info(f"✅ Extracted contextId from result_data: {extracted_context_id}")
                 else:
-                    logger.warning(f"❌ Could not extract result_data from chunk!")
+                    safe_log_warning(f"❌ Could not extract result_data from chunk!")
                 
                 if result_data:
-                    print(f"✅ Found result_data, checking kind...", file=sys.stderr)
-                    logger.info(f"✅ Found result_data, checking kind...")
+                    safe_log_info(f"✅ Found result_data, checking kind...")
                     
                     # Get the 'kind' field to determine what type of event this is
                     event_kind = result_data.get('kind') if isinstance(result_data, dict) else getattr(result_data, 'kind', None)
-                    print(f"   Event kind: {event_kind}", file=sys.stderr)
-                    logger.info(f"   Event kind: {event_kind}")
+                    safe_log_info(f"   Event kind: {event_kind}")
                     
                     # Handle artifact-update (THIS IS WHERE THE MAIN RESPONSE IS)
                     if event_kind == 'artifact-update':
-                        print(f"   📦 Processing artifact-update", file=sys.stderr)
-                        logger.info(f"   📦 Processing artifact-update")
+                        safe_log_info(f"   📦 Processing artifact-update")
                         
                         artifact = result_data.get('artifact') if isinstance(result_data, dict) else getattr(result_data, 'artifact', None)
                         
                         if artifact:
-                            logger.info(f"   Found artifact: {type(artifact)}")
+                            safe_log_info(f"   Found artifact: {type(artifact)}")
                             parts = artifact.get('parts') if isinstance(artifact, dict) else getattr(artifact, 'parts', None)
                             
                             if parts:
-                                print(f"   Found {len(parts)} parts in artifact", file=sys.stderr)
-                                logger.info(f"   Found {len(parts)} parts in artifact")
+                                safe_log_info(f"   Found {len(parts)} parts in artifact")
                                 
                                 for i, part in enumerate(parts):
                                     part_kind = part.get('kind') if isinstance(part, dict) else getattr(part, 'kind', None)
-                                    logger.info(f"   Part {i} kind: {part_kind}")
-                                    print(f"   Part {i}: {part}", file=sys.stderr)
+                                    safe_log_info(f"   Part {i} kind: {part_kind}")
                                     
                                     # Handle kind="text" - extract from 'text' field
                                     if part_kind == 'text':
                                         text_value = part.get('text') if isinstance(part, dict) else getattr(part, 'text', None)
                                         if text_value:
                                             response_text += text_value
-                                            print(f"   ✅ Extracted TEXT from part {i}: {text_value[:100]}...", file=sys.stderr)
-                                            logger.info(f"   ✅ Extracted TEXT from part {i}: {len(text_value)} chars")
+                                            safe_log_info(f"   ✅ Extracted TEXT from part {i}: {len(text_value)} chars")
                                         else:
-                                            logger.warning(f"   ⚠️ Part {i} kind='text' but no text value found")
+                                            safe_log_warning(f"   ⚠️ Part {i} kind='text' but no text value found")
                                     
                                     # Handle kind="data" - extract from 'data.question' or 'data.message' field
                                     elif part_kind == 'data':
                                         data_value = part.get('data') if isinstance(part, dict) else getattr(part, 'data', None)
-                                        logger.info(f"   Part {i} has data: {data_value}")
+                                        safe_log_info(f"   Part {i} has data: {data_value}")
                                         
                                         if data_value and isinstance(data_value, dict):
                                             # Try common keys for text content
                                             text_value = None
                                             if 'question' in data_value:
                                                 text_value = data_value['question']
-                                                logger.info(f"   Found 'question' in data")
+                                                safe_log_info(f"   Found 'question' in data")
                                             elif 'message' in data_value:
                                                 text_value = data_value['message']
-                                                logger.info(f"   Found 'message' in data")
+                                                safe_log_info(f"   Found 'message' in data")
                                             elif 'text' in data_value:
                                                 text_value = data_value['text']
-                                                logger.info(f"   Found 'text' in data")
+                                                safe_log_info(f"   Found 'text' in data")
                                             else:
                                                 # Fallback: stringify the whole data object
                                                 import json
                                                 text_value = json.dumps(data_value, indent=2)
-                                                logger.info(f"   Using full data as JSON string")
+                                                safe_log_info(f"   Using full data as JSON string")
                                             
                                             if text_value:
                                                 response_text += text_value
-                                                print(f"   ✅ Extracted DATA from part {i}: {text_value[:100]}...", file=sys.stderr)
-                                                logger.info(f"   ✅ Extracted DATA from part {i}: {len(text_value)} chars")
+                                                safe_log_info(f"   ✅ Extracted DATA from part {i}: {len(text_value)} chars")
                                         else:
-                                            logger.warning(f"   ⚠️ Part {i} kind='data' but no data value found or data is not a dict")
+                                            safe_log_warning(f"   ⚠️ Part {i} kind='data' but no data value found or data is not a dict")
                                     
                                     else:
-                                        logger.warning(f"   ⚠️ Skipping part {i} with unknown kind={part_kind}")
+                                        safe_log_warning(f"   ⚠️ Skipping part {i} with unknown kind={part_kind}")
                             else:
-                                logger.warning(f"   ⚠️ Artifact has no parts!")
+                                safe_log_warning(f"   ⚠️ Artifact has no parts!")
                         else:
-                            logger.warning(f"   ⚠️ No artifact found in artifact-update event!")
+                            safe_log_warning(f"   ⚠️ No artifact found in artifact-update event!")
                     
                     # Handle status-update (may contain status messages)
                     elif event_kind == 'status-update':
-                        print(f"   📊 Processing status-update", file=sys.stderr)
                         status = getattr(result_data, 'status', None) or (result_data.get('status') if isinstance(result_data, dict) else None)
                         
                         if status:
@@ -442,74 +473,70 @@ async def send_message_to_a2a_agent(
                                             if text_value:
                                                 # Optionally include status messages
                                                 # response_text += f"\n[Status: {text_value}]\n"
-                                                print(f"   ℹ️ Status message: {text_value}", file=sys.stderr)
                     
                     # Handle task (initial task submission)
                     elif event_kind == 'task':
-                        print(f"   📋 Task submission received", file=sys.stderr)
                     
                     else:
-                        print(f"   ⚠️ Unknown event kind: {event_kind}", file=sys.stderr)
                     
                     continue  # Skip the old parsing logic below
                 
                 # OLD LOGIC (fallback) - Handle streaming response - chunk is SendStreamingMessageResponse
                 if hasattr(chunk, 'root') and isinstance(chunk.root, SendStreamingMessageSuccessResponse):
-                    print(f"✅ [FALLBACK] Chunk has .root with SendStreamingMessageSuccessResponse", file=sys.stderr)
                     event = chunk.root.result
                     
-                    logger.debug(f"-------- EVENT TO TRANSFORM #{chunk_count} --------")
-                    logger.debug(f"Event type: {type(event).__name__}")
+                    safe_log_debug(f"-------- EVENT TO TRANSFORM #{chunk_count} --------")
+                    safe_log_debug(f"Event type: {type(event).__name__}")
                     
                     # Log the full event structure for debugging
                     try:
                         event_dict = event.model_dump() if hasattr(event, 'model_dump') else {}
-                        logger.debug(f"Event keys: {list(event_dict.keys())}")
+                        safe_log_debug(f"Event keys: {list(event_dict.keys())}")
                     except:
                         pass
                     
                     # Handle TaskStatusUpdateEvent (contains messages)
                     if isinstance(event, TaskStatusUpdateEvent):
-                        logger.debug("Processing TaskStatusUpdateEvent")
+                        safe_log_debug("Processing TaskStatusUpdateEvent")
                         if hasattr(event, 'message') and event.message:
                             message = event.message
-                            logger.debug(f"Message parts: {message.parts if hasattr(message, 'parts') else 'no parts'}")
+                            safe_log_debug(f"Message parts: {message.parts if hasattr(message, 'parts') else 'no parts'}")
                             if hasattr(message, 'parts') and message.parts:
                                 for part in message.parts:
-                                    logger.debug(f"Part type: {type(part)}, has text: {hasattr(part, 'text')}")
+                                    safe_log_debug(f"Part type: {type(part)}, has text: {hasattr(part, 'text')}")
                                     if isinstance(part, TextPart) and hasattr(part, 'text'):
                                         response_text += part.text
-                                        logger.debug(f"Extracted text from TextPart: {part.text[:50]}")
+                                        safe_log_debug(f"Extracted text from TextPart: {part.text[:50]}")
                                     elif hasattr(part, 'text') and part.text:
                                         response_text += part.text
-                                        logger.debug(f"Extracted text from part: {part.text[:50]}")
+                                        safe_log_debug(f"Extracted text from part: {part.text[:50]}")
                     
                     # Handle TaskArtifactUpdateEvent (contains artifacts) - THIS IS WHERE THE RESPONSE USUALLY IS
                     elif isinstance(event, TaskArtifactUpdateEvent):
                         artifact = event.artifact
                         
-                        logger.debug("-------- ARTIFACT RECEIVED --------")
-                        logger.debug(f"Artifact type: {type(artifact)}")
+                        safe_log_debug("-------- ARTIFACT RECEIVED --------")
+                        safe_log_debug(f"Artifact type: {type(artifact)}")
                         if hasattr(artifact, 'name'):
-                            logger.debug(f"Artifact name: {artifact.name}")
+                            safe_log_debug(f"Artifact name: {artifact.name}")
                         
                         # Check artifact.parts (common structure) - THIS IS THE PRIMARY LOCATION
                         if hasattr(artifact, 'parts') and artifact.parts:
-                            logger.debug(f"-------- TRANSFORMING {len(artifact.parts)} PARTS --------")
+                            safe_log_debug(f"-------- TRANSFORMING {len(artifact.parts)} PARTS --------")
                             for i, part in enumerate(artifact.parts):
                                 # Check 'kind' attribute FIRST (works for both dicts and objects)
                                 part_kind = getattr(part, 'kind', None) or (part.get('kind') if isinstance(part, dict) else None)
-                                logger.debug(f"Part #{i} kind: {part_kind}")
+                                safe_log_debug(f"Part #{i} kind: {part_kind}")
                                 
                                 # Handle kind="text" - extract from 'text' field
                                 if part_kind == 'text':
                                     text_value = getattr(part, 'text', None) or (part.get('text') if isinstance(part, dict) else None)
                                     if text_value:
                                         response_text += text_value
-                                        logger.info("="*60)
-                                        logger.info(f"🎯 AGENT RESPONSE EXTRACTED (Part #{i})")
-                                        logger.info(f"📝 Text: {text_value[:200]}...")
-                                        logger.info("="*60)
+                                        safe_log_info("="*60)
+                                        safe_log_info(f"🎯 AGENT RESPONSE EXTRACTED (Part #{i})")
+                                        safe_log_info(f"📝 Text: {text_value[:200]}...")
+                                        safe_log_info("="*60)
                                         continue
                                 
                                 # Handle kind="data" - extract from 'data' field
@@ -533,19 +560,19 @@ async def send_message_to_a2a_agent(
                                             response_text += extracted_text
                                         
                                         if extracted_text:
-                                            logger.info("="*60)
-                                            logger.info(f"🎯 AGENT RESPONSE EXTRACTED (Part #{i}, type=data)")
-                                            logger.info(f"📝 Content: {extracted_text[:200]}...")
-                                            logger.info("="*60)
+                                            safe_log_info("="*60)
+                                            safe_log_info(f"🎯 AGENT RESPONSE EXTRACTED (Part #{i}, type=data)")
+                                            safe_log_info(f"📝 Content: {extracted_text[:200]}...")
+                                            safe_log_info("="*60)
                                         continue
                                 
                                 # Fallback: Handle TextPart class instances
                                 if isinstance(part, TextPart) and hasattr(part, 'text') and part.text:
                                     response_text += part.text
-                                    logger.info("="*60)
-                                    logger.info(f"🎯 AGENT RESPONSE EXTRACTED (Part #{i}, TextPart)")
-                                    logger.info(f"📝 Text: {part.text[:200]}...")
-                                    logger.info("="*60)
+                                    safe_log_info("="*60)
+                                    safe_log_info(f"🎯 AGENT RESPONSE EXTRACTED (Part #{i}, TextPart)")
+                                    safe_log_info(f"📝 Text: {part.text[:200]}...")
+                                    safe_log_info("="*60)
                                     continue
                                 
                                 # Fallback: Handle DataPart class instances or objects with 'data' attribute
@@ -554,90 +581,84 @@ async def send_message_to_a2a_agent(
                                     if isinstance(data_value, dict):
                                         if 'question' in data_value:
                                             response_text += data_value['question']
-                                            logger.info(f"✅ Extracted question from DataPart")
+                                            safe_log_info(f"✅ Extracted question from DataPart")
                                         elif 'message' in data_value:
                                             response_text += data_value['message']
-                                            logger.info(f"✅ Extracted message from DataPart")
+                                            safe_log_info(f"✅ Extracted message from DataPart")
                                         elif 'text' in data_value:
                                             response_text += str(data_value['text'])
-                                            logger.info(f"✅ Extracted text from DataPart")
+                                            safe_log_info(f"✅ Extracted text from DataPart")
                                         else:
                                             import json
                                             response_text += json.dumps(data_value, indent=2)
-                                            logger.info(f"✅ Formatted DataPart as JSON")
+                                            safe_log_info(f"✅ Formatted DataPart as JSON")
                                     elif isinstance(data_value, str):
                                         response_text += data_value
-                                        logger.info(f"✅ Extracted string from DataPart")
+                                        safe_log_info(f"✅ Extracted string from DataPart")
                                     elif data_value is not None:
                                         response_text += str(data_value)
-                                        logger.info(f"✅ Converted DataPart to string")
+                                        safe_log_info(f"✅ Converted DataPart to string")
                                     continue
                                 
                                 # Final fallback: check for 'text' attribute
                                 if hasattr(part, 'text') and part.text:
                                     response_text += part.text
-                                    logger.info(f"✅ Extracted text from part.text attribute")
+                                    safe_log_info(f"✅ Extracted text from part.text attribute")
                                     continue
                         # Also check artifact.content (alternative structure)
                         elif hasattr(artifact, 'content') and artifact.content:
-                            logger.debug(f"-------- TRANSFORMING {len(artifact.content)} CONTENT ITEMS --------")
+                            safe_log_debug(f"-------- TRANSFORMING {len(artifact.content)} CONTENT ITEMS --------")
                             for part in artifact.content:
                                 if isinstance(part, TextPart) and hasattr(part, 'text'):
                                     response_text += part.text
-                                    logger.info(f"✅ Extracted text from content")
+                                    safe_log_info(f"✅ Extracted text from content")
                                 elif hasattr(part, 'text') and part.text:
                                     response_text += part.text
-                                    logger.info(f"✅ Extracted text from content")
+                                    safe_log_info(f"✅ Extracted text from content")
                                 elif hasattr(part, 'data') and part.data:
                                     data_value = part.data
                                     if isinstance(data_value, dict) and 'question' in data_value:
                                         response_text += data_value['question']
                                     else:
                                         response_text += str(data_value)
-                                    logger.info(f"✅ Extracted data from content")
+                                    safe_log_info(f"✅ Extracted data from content")
                     
                     # Handle Message directly
                     elif isinstance(event, Message):
                         if hasattr(event, 'parts') and event.parts:
-                            logger.debug(f"-------- TRANSFORMING MESSAGE WITH {len(event.parts)} PARTS --------")
+                            safe_log_debug(f"-------- TRANSFORMING MESSAGE WITH {len(event.parts)} PARTS --------")
                             for part in event.parts:
                                 if isinstance(part, TextPart) and hasattr(part, 'text'):
                                     response_text += part.text
-                                    logger.info(f"✅ Extracted text from Message")
+                                    safe_log_info(f"✅ Extracted text from Message")
                                 elif hasattr(part, 'text') and part.text:
                                     response_text += part.text
-                                    logger.info(f"✅ Extracted text from Message")
+                                    safe_log_info(f"✅ Extracted text from Message")
                     
                     # Try to extract text from event attributes directly
                     if not response_text:
                         if hasattr(event, 'text') and event.text:
                             response_text += event.text
-                            logger.info(f"✅ Extracted text from event.text")
+                            safe_log_info(f"✅ Extracted text from event.text")
                 else:
                     # Chunk doesn't have .root structure - try to parse directly
-                    print(f"⚠️ Chunk doesn't have .root structure, attempting direct parse", file=sys.stderr)
-                    logger.warning(f"Chunk doesn't have expected .root structure: {type(chunk)}")
+                    safe_log_warning(f"Chunk doesn't have expected .root structure: {type(chunk)}")
                     
                     # Try to parse chunk directly as an event
                     try:
                         if hasattr(chunk, 'model_dump'):
                             chunk_dict = chunk.model_dump()
-                            logger.info(f"Chunk dict keys: {list(chunk_dict.keys())}")
-                            print(f"Chunk dict keys: {list(chunk_dict.keys())}", file=sys.stderr)
+                            safe_log_info(f"Chunk dict keys: {list(chunk_dict.keys())}")
                         
                         # Try common attributes
                         if hasattr(chunk, 'text'):
                             response_text += str(chunk.text)
-                            print(f"✅ Extracted from chunk.text", file=sys.stderr)
                         elif hasattr(chunk, 'content'):
                             response_text += str(chunk.content)
-                            print(f"✅ Extracted from chunk.content", file=sys.stderr)
                         elif hasattr(chunk, 'message'):
                             response_text += str(chunk.message)
-                            print(f"✅ Extracted from chunk.message", file=sys.stderr)
                     except Exception as e:
-                        logger.error(f"Error parsing chunk directly: {e}")
-                        print(f"❌ Error parsing chunk: {e}", file=sys.stderr)
+                        safe_log_error(f"Error parsing chunk directly: {e}")
         else:
             # Use non-streaming
             request = SendMessageRequest(
@@ -645,35 +666,43 @@ async def send_message_to_a2a_agent(
                 params=message_payload
             )
             
-            logger.info("\n" + "="*70)
-            logger.info("📤 SENDING NON-STREAMING REQUEST")
-            logger.info("="*70)
+            safe_log_info("\n" + "="*70)
+            safe_log_info("📤 SENDING NON-STREAMING REQUEST")
+            safe_log_info("="*70)
             
             response = await a2a_client.send_message(request)
             
-            logger.info("\n" + "="*70)
-            logger.info("📥 RAW RESPONSE RECEIVED")
-            logger.info("="*70)
-            logger.info(f"Type: {type(response)}")
-            logger.info(f"Response: {response}")
+            safe_log_info("\n" + "="*70)
+            safe_log_info("📥 RAW RESPONSE RECEIVED")
+            safe_log_info("="*70)
+            safe_log_info(f"Type: {type(response)}")
+            safe_log_info(f"Response: {response}")
             
             # Try to dump it
             try:
                 if hasattr(response, 'model_dump'):
                     import json
-                    logger.info(f"Dumped: {json.dumps(response.model_dump(), indent=2, default=str)}")
+                    safe_log_info(f"Dumped: {json.dumps(response.model_dump(), indent=2, default=str)}")
                 elif hasattr(response, '__dict__'):
-                    logger.info(f"Dict: {response.__dict__}")
+                    safe_log_info(f"Dict: {response.__dict__}")
             except Exception as e:
-                logger.info(f"Could not dump: {e}")
+                safe_log_info(f"Could not dump: {e}")
             
-            logger.info("="*70 + "\n")
+            safe_log_info("="*70 + "\n")
             
             # Extract text from response - response is SendMessageResponse
             if hasattr(response, 'root'):
                 # Check if it's a success response
                 if hasattr(response.root, 'result'):
                     event = response.root.result
+                    
+                    # Extract contextId from non-streaming response
+                    if isinstance(event, Message) and hasattr(event, 'context_id'):
+                        extracted_context_id = event.context_id
+                        safe_log_info(f"✅ Extracted contextId from Message: {extracted_context_id}")
+                    elif hasattr(event, 'contextId'):
+                        extracted_context_id = event.contextId
+                        safe_log_info(f"✅ Extracted contextId from event: {extracted_context_id}")
                     
                     # Handle Message
                     if isinstance(event, Message):
@@ -716,9 +745,9 @@ async def send_message_to_a2a_agent(
             with open(debug_file_path, 'w') as f:
                 json.dump(debug_data, f, indent=2, default=str)
             debug_parts.append(f"\n**Debug data written to:** `{debug_file_path}`")
-            logger.info(f"Debug data written to {debug_file_path}")
+            safe_log_info(f"Debug data written to {debug_file_path}")
         except Exception as e:
-            logger.error(f"Failed to write debug file: {e}")
+            safe_log_error(f"Failed to write debug file: {e}")
         
         # Include summary of chunks in error message
         for i, chunk_info in enumerate(raw_chunks_debug[:3]):  # Show first 3 chunks
@@ -752,31 +781,36 @@ async def send_message_to_a2a_agent(
         debug_info = "\n".join(debug_parts)
         
         # Return response (debug info is saved to file, will be shown in UI separately)
-        if not response_text:
-            logger.warning("\n" + "="*70)
-            logger.warning("⚠️  NO TEXT EXTRACTED FROM AGENT RESPONSE")
-            logger.warning("="*70)
-            
-            # Show simple warning message (debug info will be in the UI debug expander)
-            response_text = f"⚠️ **No text content extracted from agent response.**\n\n💡 Check the Debug Info section below for details."
-            
-            logger.warning(f"Final error message: {response_text[:500]}")
-            
-            # Also print to console for visibility
-            print("\n" + "="*70)
-            print("🚨 A2A CLIENT: NO TEXT EXTRACTED")
-            print("="*70)
-            print(f"Chunks received: {len(raw_chunks_debug)}")
-            print(f"Debug file: {debug_file_path}")
-            print("="*70 + "\n")
-        else:
-            logger.info("\n" + "="*70)
-            logger.info("✅ FINAL AGENT RESPONSE")
-            logger.info(f"📊 Total length: {len(response_text)} characters")
-            logger.info(f"📝 Content preview: {response_text[:300]}...")
-            logger.info("="*70 + "\n")
-            
-            # Debug info is NOT appended - it will be shown in the UI debug expander
-        
-        return response_text
+        # Wrap ALL logging in try-except to prevent BrokenPipeError from blocking the return
+        try:
+            if not response_text:
+                safe_log_warning("\n" + "="*70)
+                safe_log_warning("⚠️  NO TEXT EXTRACTED FROM AGENT RESPONSE")
+                safe_log_warning("="*70)
+
+                # Show simple warning message (debug info will be in the UI debug expander)
+                response_text = f"⚠️ **No text content extracted from agent response.**\n\n💡 Check the Debug Info section below for details."
+
+                safe_log_warning(f"Final error message: {response_text[:500]}")
+
+                # Log to file for debugging
+                safe_log_warning("="*70)
+                safe_log_warning("🚨 A2A CLIENT: NO TEXT EXTRACTED")
+                safe_log_warning("="*70)
+                safe_log_warning(f"Chunks received: {len(raw_chunks_debug)}")
+                safe_log_warning(f"Debug file: {debug_file_path}")
+                safe_log_warning("="*70)
+            else:
+                safe_log_info("\n" + "="*70)
+                safe_log_info("✅ FINAL AGENT RESPONSE")
+                safe_log_info(f"📊 Total length: {len(response_text)} characters")
+                safe_log_info(f"📝 Content preview: {response_text[:300]}...")
+                safe_log_info("="*70 + "\n")
+        except (BrokenPipeError, OSError):
+            # Logging failed, but we have the response - continue
+            pass
+
+        # Return response text and context_id for conversation continuity
+        # This MUST execute even if logging fails
+        return response_text, extracted_context_id
 

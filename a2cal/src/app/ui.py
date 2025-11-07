@@ -167,8 +167,10 @@ def login_page():
         st.query_params["book"] = "1"
         st.rerun()
 
-# Initialize database adapter
-DB_PATH = "calendar_agent.db"
+# Initialize database adapter - use absolute path to avoid path issues
+import os
+DB_PATH = os.path.abspath("calendar_agent.db")
+print(f"🔍 DEBUG: UI - Database path: {DB_PATH}")
 db_adapter = CalendarDBAdapter(db_path=DB_PATH)
 
 # Initialize session state - ensure calendar persists across reloads
@@ -292,8 +294,25 @@ def update_events_data():
         
         status_value = get_status_value(event.status)
         status_key = status_value.lower() if status_value else "proposed"
+        
+        # Use meeting title if available, otherwise use partner + status
+        event_title = getattr(event, 'title', None)
+        print(f"🔍 DEBUG: Event {event.event_id} - title attribute: {event_title}, type: {type(event_title)}")
+        print(f"🔍 DEBUG: Event {event.event_id} - hasattr('title'): {hasattr(event, 'title')}, dir includes 'title': {'title' in dir(event)}")
+        if hasattr(event, '__dict__'):
+            print(f"🔍 DEBUG: Event {event.event_id} - __dict__ keys: {list(event.__dict__.keys())}")
+        
+        if event_title:
+            # Show just the title in calendar (cleaner view)
+            event_title_display = event_title
+            print(f"🔍 DEBUG: Using title '{event_title}' for event {event.event_id}")
+        else:
+            # Fallback to partner + status if no title
+            event_title_display = f"{event.partner_agent_id} ({status_value})"
+            print(f"🔍 DEBUG: No title found for event {event.event_id}, using fallback: {event_title_display}")
+        
         event_data = {
-            "title": f"{event.partner_agent_id} ({status_value})",
+            "title": event_title_display,
             "start": event.time.isoformat(),
             "end": end_time.isoformat(),
             "color": color_map.get(status_key, "#757575"),
@@ -301,11 +320,12 @@ def update_events_data():
                 "event_id": event.event_id,
                 "partner": event.partner_agent_id,
                 "status": status_value,
-                "duration": event.duration
+                "duration": event.duration,
+                "title": event_title
             }
         }
         events.append(event_data)
-        print(f"🔍 DEBUG: Added event to UI data: {event.event_id} - {event.partner_agent_id} at {event.time.isoformat()}")
+        print(f"🔍 DEBUG: Added event to UI data: {event.event_id} - title: '{event_title_display}'")
     
     # Update session state with synchronized events
     st.session_state.events_data = events
@@ -330,6 +350,13 @@ def update_events_data():
 def booking_page():
     """Booking page accessible via /book route."""
     st.title("📅 Book a Meeting")
+    
+    # Show success message from previous booking if it exists (persists across rerun)
+    if 'last_booking_success' in st.session_state:
+        success_info = st.session_state.last_booking_success
+        st.success(f"✅ Meeting request submitted! Event ID: {success_info['event_id']}")
+        # Clear it after showing
+        del st.session_state.last_booking_success
     
     # Ensure calendar is properly initialized - load from database if needed
     if 'calendar' not in st.session_state or not isinstance(st.session_state.calendar, Calendar):
@@ -356,30 +383,65 @@ def booking_page():
     with st.form("booking_form"):
         st.subheader("Meeting Details")
         
+        # Look up Calendar Booking Agent's DID for partner_id
+        booking_agent_did = None
+        try:
+            server_state = get_server_state()
+            agents = server_state.get('agents', {})
+            # Find Calendar Booking Agent by name
+            for did, agent_info in agents.items():
+                if agent_info.get('name') == 'Calendar Booking Agent':
+                    booking_agent_did = did
+                    break
+        except Exception as e:
+            print(f"⚠️ Could not look up Calendar Booking Agent DID: {e}")
+        
         partner_id = st.text_input(
             "Your Agent ID *",
+            value=booking_agent_did if booking_agent_did else "",
             placeholder="agent-beta-42",
-            help="Your unique agent identifier"
+            help="Your unique agent identifier (auto-populated with Calendar Booking Agent's DID)"
         )
         
+        if booking_agent_did and partner_id == booking_agent_did:
+            st.caption("✅ Using Calendar Booking Agent's DID")
+        
+        # Initialize form state if not exists or if last booking was successful
+        if 'booking_form_date' not in st.session_state or st.session_state.get('last_booking_success'):
+            st.session_state.booking_form_date = datetime.now().date()
+            st.session_state.booking_form_time = datetime.now().time()
+            # Clear success flag after using it
+            if 'last_booking_success' in st.session_state:
+                del st.session_state.last_booking_success
+
         col1, col2 = st.columns(2)
         with col1:
             event_date = st.date_input(
                 "Preferred Date *",
-                value=datetime.now().date(),
-                min_value=datetime.now().date()
+                value=st.session_state.booking_form_date,
+                min_value=datetime.now().date(),
+                key="booking_date_input"
             )
+            st.session_state.booking_form_date = event_date
         with col2:
             event_time = st.time_input(
                 "Preferred Time *",
-                value=datetime.now().time()
+                value=st.session_state.booking_form_time,
+                key="booking_time_input"
             )
+            st.session_state.booking_form_time = event_time
         
         duration = st.selectbox(
             "Meeting Duration *",
             options=["15m", "30m", "45m", "1h", "1.5h", "2h"],
             index=1,
             help="Select the duration for the meeting"
+        )
+        
+        meeting_title = st.text_input(
+            "Meeting Title",
+            placeholder="e.g., Project Review, Team Sync, etc.",
+            help="Optional title for the meeting"
         )
         
         message = st.text_area(
@@ -391,35 +453,188 @@ def booking_page():
         submitted = st.form_submit_button("📅 Request Meeting", type="primary", use_container_width=True)
         
         if submitted:
+            # Log to file for debugging
+            import logging
+            from pathlib import Path
+            
+            # Setup file logger for booking page
+            booking_log_file = Path("/tmp/booking_page.log")
+            booking_logger = logging.getLogger("booking_page")
+            booking_logger.setLevel(logging.DEBUG)
+            
+            # Remove existing handlers to avoid duplicates
+            booking_logger.handlers = []
+            
+            # File handler
+            file_handler = logging.FileHandler(booking_log_file, mode='a')
+            file_handler.setLevel(logging.DEBUG)
+            file_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', datefmt='%H:%M:%S')
+            file_handler.setFormatter(file_formatter)
+            booking_logger.addHandler(file_handler)
+            
+            # Console handler with flush
+            import sys
+            console_handler = logging.StreamHandler(sys.stderr)
+            console_handler.setLevel(logging.DEBUG)
+            console_formatter = logging.Formatter('[BookingPage] %(message)s')
+            console_handler.setFormatter(console_formatter)
+            booking_logger.addHandler(console_handler)
+            
+            booking_logger.info("="*80)
+            booking_logger.info("📅 BOOKING FORM SUBMITTED")
+            booking_logger.info(f"partner_id={partner_id}, date={event_date}, time={event_time}")
+            booking_logger.info("="*80)
+            print(f"🔍 DEBUG: Form submitted! partner_id={partner_id}, date={event_date}, time={event_time}", flush=True)
+            
             if not partner_id:
                 st.error("❌ Please enter your Agent ID")
             else:
                 try:
+                    booking_logger.info("Starting event creation...")
+                    print(f"🔍 DEBUG: Starting event creation...", flush=True)
                     event_datetime = datetime.combine(event_date, event_time)
-                    
+                    booking_logger.info(f"Combined datetime: {event_datetime}")
+                    print(f"🔍 DEBUG: Combined datetime: {event_datetime}", flush=True)
+
+                    # CRITICAL: Sync calendar from database FIRST to avoid phantom conflicts
+                    # This ensures we're working with the actual saved events, not stale in-memory ones
+                    booking_logger.info("Syncing calendar from database before creating event...")
+                    print(f"🔍 DEBUG: Syncing calendar from database...", flush=True)
+                    try:
+                        saved_events = db_adapter.load_all_events(Event, EventStatus)
+                        st.session_state.calendar.events = {}  # Clear in-memory events
+                        for saved_event in saved_events:
+                            st.session_state.calendar.events[saved_event.event_id] = saved_event
+                        booking_logger.info(f"Synced {len(saved_events)} events from database")
+                        print(f"🔍 DEBUG: Synced {len(saved_events)} events from database", flush=True)
+                    except Exception as sync_err:
+                        booking_logger.warning(f"Could not sync from database: {sync_err}")
+                        print(f"🔍 DEBUG: WARNING - Could not sync from database: {sync_err}", flush=True)
+
                     # Check preferences before proposing
                     prefs = st.session_state.preferences
                     matches_prefs = prefs.is_preferred_time(event_datetime)
-                    
-                    # Create the event
+                    booking_logger.info(f"Preferences check: matches={matches_prefs}")
+                    print(f"🔍 DEBUG: Preferences check: matches={matches_prefs}", flush=True)
+
+                    # Create the event with title
+                    booking_logger.info("Calling propose_event...")
+                    print(f"🔍 DEBUG: Calling propose_event...", flush=True)
                     event = st.session_state.calendar.propose_event(
                         time=event_datetime,
                         duration=duration,
-                        partner_agent_id=partner_id
+                        partner_agent_id=partner_id,
+                        title=meeting_title if meeting_title else None
                     )
+                    booking_logger.info(f"✓ Event created: {event.event_id}")
+                    booking_logger.info(f"Event title: {getattr(event, 'title', None)}")
+                    print(f"🔍 DEBUG: ✓ Event created: {event.event_id}", flush=True)
+                    print(f"🔍 DEBUG: Event title: {getattr(event, 'title', None)}", flush=True)
+                    print(f"🔍 DEBUG: Event is in calendar: {event.event_id in st.session_state.calendar.events}", flush=True)
+                    print(f"🔍 DEBUG: Calendar has {len(st.session_state.calendar.events)} events before save", flush=True)
                     
-                    st.success("✅ Meeting request submitted!")
+                    # Verify event is in calendar
+                    if event.event_id not in st.session_state.calendar.events:
+                        booking_logger.error(f"Event {event.event_id} was not added to calendar!")
+                        st.error(f"❌ Event {event.event_id} was not added to calendar!")
+                        print(f"🔍 DEBUG: ERROR - Event not in calendar after propose_event()", flush=True)
+                        raise Exception(f"Event {event.event_id} was not added to calendar")
+                    
+                    booking_logger.info("✓ Event confirmed in calendar")
+                    print(f"🔍 DEBUG: ✓ Event confirmed in calendar", flush=True)
+                    
+                    # Save to database FIRST
+                    booking_logger.info(f"Saving to database NOW... {event.event_id} {event.title}")
+                    print(f"🔍 DEBUG: Saving to database...", flush=True)
+                    save_success = db_adapter.save_event(event)
+                    booking_logger.info(f"Event saved to database: {save_success}")
+                    if not save_success:
+                        booking_logger.error(f"Failed to save event {event.event_id} to database")
+                        st.error(f"❌ Failed to save event to database. Event ID: {event.event_id}")
+                        print(f"🔍 DEBUG: ERROR - Database save failed", flush=True)
+                        raise Exception(f"Failed to save event {event.event_id} to database")
+                    
+                    booking_logger.info(f"✓ Saved event {event.event_id} to database")
+                    print(f"🔍 DEBUG: ✓ Saved event {event.event_id} to database", flush=True)
+                    
+                    # Verify event can be loaded back from database
+                    loaded_event = db_adapter.load_event(event.event_id, Event, EventStatus)
+                    if loaded_event:
+                        booking_logger.info(f"✓ Verified event in database - title: {getattr(loaded_event, 'title', None)}")
+                        print(f"🔍 DEBUG: ✓ Verified event in database - title: {getattr(loaded_event, 'title', None)}", flush=True)
+                    else:
+                        booking_logger.warning(f"Event {event.event_id} not found in database after saving")
+                        st.warning(f"⚠️ Event {event.event_id} not found in database after saving (may still be processing)")
+                        print(f"🔍 DEBUG: WARNING - Event not immediately loadable from database", flush=True)
+                    
+                    # Explicitly sync calendar from database to ensure new event is included
+                    booking_logger.info("Syncing calendar from database...")
+                    print(f"🔍 DEBUG: Syncing calendar from database...", flush=True)
+                    try:
+                        saved_events = db_adapter.load_all_events(Event, EventStatus)
+                        booking_logger.info(f"Loaded {len(saved_events)} events from database")
+                        print(f"🔍 DEBUG: Loaded {len(saved_events)} events from database", flush=True)
+                        
+                        # Verify the new event is in the loaded events
+                        event_found_in_db = any(e.event_id == event.event_id for e in saved_events)
+                        if not event_found_in_db:
+                            booking_logger.error(f"CRITICAL: New event {event.event_id} NOT found in database after save!")
+                            print(f"🔍 DEBUG: CRITICAL - Event {event.event_id} NOT in loaded events!", flush=True)
+                            st.error(f"⚠️ Warning: Event was saved but not immediately found in database. This may be a timing issue.")
+                        else:
+                            booking_logger.info(f"✓ Verified new event {event.event_id} is in database")
+                            print(f"🔍 DEBUG: ✓ Verified new event {event.event_id} is in database", flush=True)
+                        
+                        # Update calendar with all events from database
+                        for saved_event in saved_events:
+                            # Ensure status is properly set
+                            if isinstance(saved_event.status, str) and hasattr(EventStatus, saved_event.status.upper()):
+                                try:
+                                    saved_event.status = EventStatus[saved_event.status.upper()]
+                                except Exception as e:
+                                    booking_logger.warning(f"Could not convert status for event {saved_event.event_id}: {e}")
+                                    pass
+                            # Add or update event in calendar
+                            st.session_state.calendar.events[saved_event.event_id] = saved_event
+                            booking_logger.info(f"Added/updated event {saved_event.event_id} in calendar")
+                        
+                        booking_logger.info(f"Calendar now has {len(st.session_state.calendar.events)} events")
+                        print(f"🔍 DEBUG: Calendar now has {len(st.session_state.calendar.events)} events after sync", flush=True)
+                    except Exception as sync_error:
+                        booking_logger.error(f"Error syncing calendar from database: {sync_error}", exc_info=True)
+                        print(f"🔍 DEBUG: ERROR syncing calendar: {sync_error}", flush=True)
+                        import traceback
+                        traceback.print_exc()
+                        st.error(f"❌ Error syncing calendar from database: {str(sync_error)}")
+                        st.code(traceback.format_exc())
+                        # Don't rerun if there's an error - let user see it
+                        return
                     
                     # Refresh calendar to show new event
-                    refresh_calendar()
+                    booking_logger.info("Refreshing calendar UI...")
+                    print(f"🔍 DEBUG: Refreshing calendar UI...", flush=True)
+                    try:
+                        refresh_calendar()
+                        booking_logger.info(f"After refresh, events_data has {len(st.session_state.get('events_data', []))} events")
+                        print(f"🔍 DEBUG: After refresh, events_data has {len(st.session_state.get('events_data', []))} events", flush=True)
+                    except Exception as refresh_error:
+                        booking_logger.error(f"Error refreshing calendar: {refresh_error}", exc_info=True)
+                        print(f"🔍 DEBUG: ERROR refreshing calendar: {refresh_error}", flush=True)
+                        import traceback
+                        traceback.print_exc()
+                        st.error(f"❌ Error refreshing calendar: {str(refresh_error)}")
+                        st.code(traceback.format_exc())
+                        # Don't rerun if there's an error - let user see it
+                        return
                     
-                    # Save to database
-                    db_adapter.save_event(event)
-                    print(f"🔍 DEBUG: Saved event {event.event_id} from booking page to database")
+                    # Show success message
+                    booking_logger.info("✅ Meeting request submitted successfully!")
+                    st.success("✅ Meeting request submitted!")
                     
                     # Display event details
+                    title_display = f"**Title:** {meeting_title}\n" if meeting_title else ""
                     st.info(f"""
-                    **Event ID:** `{event.event_id}`  
+                    {title_display}**Event ID:** `{event.event_id}`  
                     **Time:** {event_datetime.strftime('%Y-%m-%d %H:%M')}  
                     **Duration:** {duration}  
                     **Status:** {get_status_value(event.status)}
@@ -430,8 +645,50 @@ def booking_page():
                     if not matches_prefs:
                         st.warning(f"⚠️ Note: This time may not match the agent's preferred schedule ({prefs.preferred_start_hour}:00-{prefs.preferred_end_hour}:00 on {', '.join(prefs.preferred_days)})")
                     
+                    # Show log file viewer
+                    st.markdown("---")
+                    st.subheader("📋 Booking Logs")
+                    log_file_path = Path("/tmp/booking_page.log")
+                    if log_file_path.exists():
+                        with open(log_file_path, 'r') as f:
+                            log_content = f.read()
+                            if log_content.strip():
+                                st.code(log_content, language='text')
+                            else:
+                                st.info("Log file is empty")
+                    else:
+                        st.info("Log file not found")
+                    
+                    # Store success state in session to persist across rerun
+                    st.session_state.last_booking_success = {
+                        'event_id': event.event_id,
+                        'time': event_datetime.isoformat(),
+                        'title': meeting_title
+                    }
+                    
+                    # Force UI refresh to clear form state and show updated calendar
+                    booking_logger.info("Calling st.rerun() to refresh UI...")
+                    print(f"🔍 DEBUG: Calling st.rerun() to refresh UI...", flush=True)
+                    st.rerun()
+                    
                 except ValueError as e:
-                    st.error(f"❌ Error: {str(e)}")
+                    error_msg = f"❌ Validation Error: {str(e)}"
+                    booking_logger.error(f"ValueError: {e}", exc_info=True)
+                    st.error(error_msg)
+                    print(f"🔍 DEBUG: ValueError caught: {e}", flush=True)
+                    import traceback
+                    traceback_str = traceback.format_exc()
+                    print(f"🔍 DEBUG: Traceback:\n{traceback_str}", flush=True)
+                    st.code(traceback_str)
+                except Exception as e:
+                    error_msg = f"❌ Unexpected error: {str(e)}"
+                    booking_logger.error(f"Exception: {e}", exc_info=True)
+                    st.error(error_msg)
+                    print(f"🔍 DEBUG: Exception caught: {e}", flush=True)
+                    import traceback
+                    traceback_str = traceback.format_exc()
+                    print(f"🔍 DEBUG: Traceback:\n{traceback_str}", flush=True)
+                    st.code(traceback_str)
     
     # Booking Links section
     st.markdown("---")
@@ -691,17 +948,37 @@ def agents_page():
 
 def use_agent_to_book_page():
     """Streamlit UI page for using an agent (via A2A or MCP) to book an invite."""
+    # Back to Dashboard button
+    if st.button("← Back to Dashboard", key="back_to_dashboard_from_book", use_container_width=False):
+        st.query_params.clear()
+        st.rerun()
+    
     st.title("🤝 Use Agent To Book Invite")
     st.markdown("Connect to an agent using their DID and book a meeting via A2A or MCP.")
     
     st.markdown("---")
     
-    # DID Input Section
+    # Look up Calendar Manager Agent (Admin) DID from server state for target
+    admin_agent_did = None
+    try:
+        server_state = get_server_state()
+        agents = server_state.get('agents', {})
+        # Find Calendar Manager Agent by name
+        for did, agent_info in agents.items():
+            if agent_info.get('name') == 'Calendar Manager Agent':
+                admin_agent_did = did
+                break
+    except Exception as e:
+        print(f"⚠️ Could not look up Calendar Manager Agent DID: {e}")
+    
+    # DID Input Section - starts empty, but can use Admin DID as target
     st.subheader("🔐 Agent DID")
     col1, col2 = st.columns([3, 1])
     with col1:
+        # Input starts empty (no auto-population)
         agent_did = st.text_input(
             "Agent Decentralized Identifier (DID)",
+            value="",
             placeholder="did:peer:2...",
             help="Enter the DID of the agent you want to connect to",
             key="agent_did_input",
@@ -709,6 +986,10 @@ def use_agent_to_book_page():
         )
     with col2:
         connect_button = st.button("🔗 Connect", key="connect_did", type="primary", use_container_width=True)
+    
+    # Show suggestion to use Admin DID if input is empty
+    if not agent_did and admin_agent_did:
+        st.info(f"💡 Tip: You can connect to Calendar Manager Agent using DID: `{admin_agent_did[:50]}...`")
     
     if not agent_did:
         st.info("💡 Enter an agent DID to begin booking")
@@ -777,68 +1058,329 @@ def use_agent_to_book_page():
         st.info(f"💬 MCP Endpoint: `{mcp_endpoint}`")
     st.markdown("---")
     
-    # Automatic Booking Section
-    if a2a_endpoint:
-        st.subheader("🤖 Automated AI Booking")
-        st.markdown("""
-        Let your **Calendar Booking Agent** use AI to intelligently negotiate with the target agent.
-        The agent will use your preferences from the sidebar to find the best meeting time.
-        """)
+    # Create tabs for A2A and MCP
+    tab_a2a, tab_mcp = st.tabs(["📡 A2A Chat", "💬 MCP Chat"])
+    
+    # A2A Tab
+    with tab_a2a:
+        st.subheader("📡 A2A Chat")
+        st.markdown("Chat with the agent using A2A protocol to book a meeting through conversation.")
         
-        # Show current preferences summary
-        with st.expander("📋 Current Preferences (from sidebar)", expanded=False):
-            prefs = st.session_state.preferences
-            col1, col2 = st.columns(2)
+        # Display A2A endpoint if available
+        if a2a_endpoint:
+            st.info(f"**A2A Service Endpoint:** `{a2a_endpoint}`")
+        else:
+            st.warning("⚠️ A2A endpoint not found. Please resolve the DID first.")
+        
+        st.markdown("---")
+        
+        # Initialize chat history and context in session state
+        if 'a2a_chat_history' not in st.session_state:
+            st.session_state.a2a_chat_history = []
+        if 'a2a_context_id' not in st.session_state:
+            st.session_state.a2a_context_id = None
+        
+        # Display chat history
+        st.subheader("💬 Chat")
+        
+        # Chat container
+        chat_container = st.container()
+        
+        with chat_container:
+            # Display chat messages
+            for idx, message in enumerate(st.session_state.a2a_chat_history):
+                if message.get('role') == 'user':
+                    with st.chat_message("user"):
+                        st.write(message.get('content', ''))
+                elif message.get('role') == 'assistant':
+                    with st.chat_message("assistant"):
+                        st.write(message.get('content', ''))
+        
+        st.markdown("---")
+        
+        # Chat input - only enable if A2A endpoint is available
+        chat_enabled_a2a = a2a_endpoint is not None and A2A_CLIENT_AVAILABLE
+        
+        # Debug info expander
+        with st.expander("🔧 Debug Info", expanded=False):
+            import sys
+            import json
+            import os
             
-            with col1:
-                st.markdown("**Time Preferences:**")
-                st.write(f"- Hours: {prefs.preferred_start_hour}:00 - {prefs.preferred_end_hour}:00")
-                st.write(f"- Days: {', '.join(prefs.preferred_days)}")
+            st.subheader("System Info")
+            st.code(f"""
+Python executable: {sys.executable}
+A2A_CLIENT_AVAILABLE: {A2A_CLIENT_AVAILABLE}
+A2A endpoint: {a2a_endpoint}
+Chat enabled: {chat_enabled_a2a}
+            """.strip())
+            
+            if not A2A_CLIENT_AVAILABLE:
+                try:
+                    from a2a_client.client import _import_error, A2A_SDK_AVAILABLE
+                    st.warning(f"A2A SDK Available: {A2A_SDK_AVAILABLE}")
+                    if _import_error:
+                        st.error(f"Import error: {_import_error}")
+                        st.code(str(_import_error))
+                except:
+                    st.error("Could not retrieve import error details")
+            
+            # Show A2A Client Debug Info from JSON file
+            st.markdown("---")
+            st.subheader("A2A Client Debug Info")
+            debug_file_path = "/tmp/a2a_client_debug.json"
+            
+            if os.path.exists(debug_file_path):
+                try:
+                    with open(debug_file_path, 'r') as f:
+                        debug_data = json.load(f)
+                    
+                    st.success(f"✅ Last request to: `{debug_data.get('endpoint', 'N/A')}`")
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Chunks Received", debug_data.get('chunks_received', 0))
+                    with col2:
+                        st.metric("Text Extracted", "✅ Yes" if debug_data.get('text_extracted') else "❌ No")
+                    with col3:
+                        st.metric("Text Length", debug_data.get('text_length', 0))
+                    
+                    st.markdown("**Message sent:**")
+                    st.code(debug_data.get('message', 'N/A'))
+                    
+                    st.markdown("**Streaming:**")
+                    st.code(f"Supports streaming: {debug_data.get('supports_streaming', False)}")
+                    
+                    # Show chunk summary
+                    st.markdown("**Chunks received:**")
+                    raw_chunks = debug_data.get('raw_chunks', [])
+                    for i, chunk_info in enumerate(raw_chunks):
+                        with st.expander(f"Chunk {i+1}: {chunk_info.get('type', 'Unknown')}", expanded=False):
+                            st.json(chunk_info.get('data', {}))
+                    
+                    # Button to view full debug file
+                    if st.button("📄 View Full Debug JSON"):
+                        st.json(debug_data)
+                        
+                except Exception as e:
+                    st.error(f"Failed to read debug file: {e}")
+            else:
+                st.info("No debug info available yet. Send a message to generate debug data.")
+        
+        if not chat_enabled_a2a:
+            if not a2a_endpoint:
+                st.warning("⚠️ A2A endpoint not available. Please resolve the DID first.")
+            elif not A2A_CLIENT_AVAILABLE:
+                st.warning("⚠️ A2A client not available. Please install required dependencies.")
+                st.info("💡 Check the Debug Info expander above for details about the import error.")
+        
+        user_input_a2a = st.chat_input(
+            "Type your message to the agent..." if chat_enabled_a2a else "Connect to agent first...",
+            disabled=not chat_enabled_a2a,
+            key="a2a_chat_input"
+        )
+        
+        if user_input_a2a and chat_enabled_a2a:
+            # Get Booking Agent's DID for context injection
+            booking_agent_did_for_chat = None
+            try:
+                server_state = get_server_state()
+                agents = server_state.get('agents', {})
+                # Find Calendar Booking Agent by name
+                for did, agent_info in agents.items():
+                    if agent_info.get('name') == 'Calendar Booking Agent':
+                        booking_agent_did_for_chat = did
+                        break
+            except Exception as e:
+                print(f"⚠️ Could not look up Calendar Booking Agent DID for chat: {e}")
+            
+            # Inject Booking Agent's DID as context in the message
+            # This tells the agent who is making the request
+            enhanced_message = user_input_a2a
+            if booking_agent_did_for_chat:
+                context_prefix = f"[Context: I am the Calendar Booking Agent with DID {booking_agent_did_for_chat}. When booking meetings, use this as the partner_agent_id.]\n\n"
+                enhanced_message = context_prefix + user_input_a2a
+            
+            # Add user message to chat history
+            st.session_state.a2a_chat_history.append({
+                'role': 'user',
+                'content': user_input_a2a
+            })
+            
+            # Display user message immediately
+            with st.chat_message("user"):
+                st.write(user_input_a2a)
+            
+            # Send message via A2A client
+            with st.chat_message("assistant"):
+                with st.spinner("Connecting to agent..."):
+                    try:
+                        import asyncio
+                        import sys
+                        import os
+                        from contextlib import redirect_stdout, redirect_stderr
+
+                        # Run async A2A client call in a clean event loop
+                        # Use stored context_id to maintain conversation continuity
+                        async def get_response():
+                            return await send_message_to_a2a_agent(
+                                endpoint_url=a2a_endpoint,
+                                message_text=enhanced_message,
+                                context_id=st.session_state.a2a_context_id
+                            )
+
+                        # Redirect stdout/stderr to devnull to prevent broken pipe errors
+                        # when async operations try to write to closed streams
+                        devnull = open(os.devnull, 'w')
+                        try:
+                            with redirect_stdout(devnull), redirect_stderr(devnull):
+                                # Use asyncio.run() for a clean event loop (avoids nest_asyncio issues)
+                                try:
+                                    response_text, new_context_id = asyncio.run(get_response())
+                                except RuntimeError:
+                                    # If there's already an event loop, use it with nest_asyncio
+                                    import nest_asyncio
+                                    nest_asyncio.apply()
+                                    loop = asyncio.get_event_loop()
+                                    response_text, new_context_id = loop.run_until_complete(get_response())
+                        finally:
+                            devnull.close()
+                        
+                        # Store the context_id for conversation continuity
+                        if new_context_id:
+                            st.session_state.a2a_context_id = new_context_id
+                            # Context stored (removed print to avoid broken pipe)
+                        
+                        st.write(response_text)
+                        
+                        # Add assistant response to chat history
+                        st.session_state.a2a_chat_history.append({
+                            'role': 'assistant',
+                            'content': response_text
+                        })
+
+                        # Only rerun on successful message exchange
+                        st.rerun()
+
+                    except BrokenPipeError as e:
+                        # Broken pipe error - likely from async/sync bridge or closed streams
+                        error_msg = "⚠️ Communication error: The connection was interrupted. This can happen when streams are closed during async operations. Try your message again."
+                        st.error(error_msg)
+                        st.session_state.a2a_chat_history.append({
+                            'role': 'assistant',
+                            'content': error_msg
+                        })
+                        # Don't rerun on error - let user see the error message
+
+                    except ExceptionGroup as eg:
+                        # Handle ExceptionGroup (TaskGroup errors)
+                        error_details = []
+                        for exc in eg.exceptions:
+                            error_details.append(str(exc))
+                        error_msg = f"Connection error: {'; '.join(error_details)}"
+                        st.error(error_msg)
+                        st.exception(eg)  # Show full traceback in expander
+                        st.session_state.a2a_chat_history.append({
+                            'role': 'assistant',
+                            'content': error_msg
+                        })
+                        # Don't rerun on error - let user see the error message
+
+                    except Exception as e:
+                        # Extract more details from the error
+                        error_msg = f"Error communicating with agent: {str(e)}"
+                        error_type = type(e).__name__
+
+                        # Provide more helpful error messages
+                        if "ImportError" in error_type or "a2a-sdk" in str(e).lower():
+                            # Show detailed debug info for import errors
+                            import sys
+                            debug_info = f"""
+**A2A SDK Import Error**
+
+Python executable: `{sys.executable}`
+Error: {str(e)}
+
+**Troubleshooting:**
+1. Make sure you're using the correct Python environment
+2. Install a2a-sdk: `pip install 'a2a-sdk[http-server]'`
+3. Restart Streamlit after installing
+4. Check that Streamlit is using the same Python as your terminal
+                            """
+                            error_msg = debug_info
+                        elif "ConnectError" in error_type or "connection" in str(e).lower():
+                            error_msg = f"❌ Cannot connect to A2A server at `{a2a_endpoint}`. Please check:\n- The server is running\n- The URL is correct\n- Network connectivity"
+                        elif "TaskGroup" in str(e):
+                            error_msg = f"❌ Connection failed: {str(e)}\n\nThis usually means the A2A server is not accessible. Please verify the endpoint URL."
+
+                        st.error(error_msg)
+                        with st.expander("🔍 Error Details", expanded=True):
+                            st.exception(e)
+                            # Show additional debug info
+                            import sys
+                            st.code(f"""
+Python executable: {sys.executable}
+A2A_CLIENT_AVAILABLE: {A2A_CLIENT_AVAILABLE}
+Error type: {error_type}
+                            """.strip())
+                        st.session_state.a2a_chat_history.append({
+                            'role': 'assistant',
+                            'content': error_msg
+                        })
+                        # Don't rerun on error - let user see the error message
+        
+        # Automated AI Booking Section (visible button above Clear Chat)
+        if a2a_endpoint:
+            # Preferences and meeting details in expander
+            with st.expander("📋 Booking Preferences & Details", expanded=False):
+                # Show current preferences summary
+                with st.expander("📋 Current Preferences (from sidebar)", expanded=False):
+                    prefs = st.session_state.preferences
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**Time Preferences:**")
+                        st.write(f"- Hours: {prefs.preferred_start_hour}:00 - {prefs.preferred_end_hour}:00")
+                        st.write(f"- Days: {', '.join(prefs.preferred_days)}")
+                        
+                    with col2:
+                        st.markdown("**Duration:**")
+                        st.write(f"- Preferred: {prefs.preferred_duration}")
+                        st.write(f"- Range: {prefs.min_duration} - {prefs.max_duration}")
+                    
+                    st.markdown("**Constraints:**")
+                    st.write(f"- Buffer between meetings: {prefs.buffer_between_meetings} minutes")
+                    st.write(f"- Max meetings per day: {prefs.max_meetings_per_day}")
+                    
+                    st.info("💡 Update preferences in the sidebar to change booking behavior")
                 
-            with col2:
-                st.markdown("**Duration:**")
-                st.write(f"- Preferred: {prefs.preferred_duration}")
-                st.write(f"- Range: {prefs.min_duration} - {prefs.max_duration}")
+                # Optional: Meeting title and description
+                meeting_title = st.text_input(
+                    "Meeting Title",
+                    placeholder="e.g., Project Review",
+                    key="auto_booking_title"
+                )
+                meeting_description = st.text_area(
+                    "Meeting Description",
+                    placeholder="Optional description for the meeting",
+                    key="auto_booking_description",
+                    height=80
+                )
             
-            st.markdown("**Constraints:**")
-            st.write(f"- Buffer between meetings: {prefs.buffer_between_meetings} minutes")
-            st.write(f"- Max meetings per day: {prefs.max_meetings_per_day}")
-            
-            st.info("💡 Update preferences in the sidebar to change booking behavior")
-        
-        # Optional: Meeting title and description
-        with st.expander("📝 Meeting Details (Optional)", expanded=False):
-            meeting_title = st.text_input(
-                "Meeting Title",
-                placeholder="e.g., Project Review",
-                key="auto_booking_title"
-            )
-            meeting_description = st.text_area(
-                "Meeting Description",
-                placeholder="Optional description for the meeting",
-                key="auto_booking_description",
-                height=80
-            )
-        
-        # Book Meeting button
-        col1, col2, col3 = st.columns([2, 1, 2])
-        with col2:
-            if st.button("🤖 Let AI Book Meeting", type="primary", use_container_width=True, key="auto_book_button"):
+            # Automate button (visible, above Clear Chat)
+            if st.button("🤖 Automate", type="primary", use_container_width=True, key="automate_button_in_chat"):
                 print("\n" + "="*80)
-                print("[UI] 🚀 AUTOMATED BOOKING BUTTON CLICKED!")
+                print("[UI] 🚀 AUTOMATE BUTTON CLICKED IN A2A CHAT!")
                 print("="*80)
                 
                 # Show visible feedback in UI
-                st.success("✅ Button clicked! Starting automated booking...")
-                st.write("🔍 **Debug**: Button handler is executing")
+                st.success("✅ Starting automated booking...")
                 
                 # Initialize booking automation
                 from a2a_client.booking_automation import BookingAutomation, MeetingPreferences
                 print("[UI] ✓ Imported BookingAutomation and MeetingPreferences")
-                st.write("✓ Imported booking modules")
                 
                 # Convert sidebar preferences to MeetingPreferences
-                # Use natural language for the AI to interpret
                 prefs = st.session_state.preferences
                 print(f"[UI] ✓ Retrieved preferences: {prefs}")
                 date_pref = f"within the next week, preferably on {', '.join(prefs.preferred_days)}"
@@ -848,13 +1390,30 @@ def use_agent_to_book_page():
                 duration_map = {"15m": 15, "30m": 30, "45m": 45, "1h": 60, "1.5h": 90, "2h": 120, "3h": 180}
                 duration_minutes = duration_map.get(prefs.preferred_duration, 60)
                 
+                # Use Booking Agent's DID as partner_agent_id (sender), not the target agent_did
+                booking_agent_did_for_booking = None
+                try:
+                    server_state = get_server_state()
+                    agents = server_state.get('agents', {})
+                    # Find Calendar Booking Agent by name
+                    for did, agent_info in agents.items():
+                        if agent_info.get('name') == 'Calendar Booking Agent':
+                            booking_agent_did_for_booking = did
+                            break
+                except Exception as e:
+                    print(f"⚠️ Could not look up Calendar Booking Agent DID: {e}")
+                
+                # Use Booking Agent's DID as the sender (partner_agent_id)
+                # agent_did is the target agent we're connecting to
+                partner_agent_id = booking_agent_did_for_booking if booking_agent_did_for_booking else agent_did
+                
                 preferences = MeetingPreferences(
                     date=date_pref,
                     time=time_pref,
                     duration=duration_minutes,
                     title=meeting_title if meeting_title else "Meeting",
                     description=meeting_description if meeting_description else None,
-                    partner_agent_id=agent_did
+                    partner_agent_id=partner_agent_id
                 )
                 print(f"[UI] ✓ Created MeetingPreferences: {preferences}")
                 
@@ -1007,232 +1566,17 @@ Always prioritize the user's preferences while being flexible to find workable s
                                 data=log_content,
                                 file_name="booking_automation.log",
                                 mime="text/plain",
-                                key="download_booking_log"
+                                key="download_booking_log_chat"
                             )
                         except Exception as e:
                             st.error(f"Error reading log file: {e}")
                 else:
                     st.info("📋 Log file will appear here when automated booking starts")
         
-        st.markdown("---")
-    
-    # Create tabs for Manual A2A and MCP
-    tab_a2a, tab_mcp = st.tabs(["📡 Manual A2A Chat", "💬 MCP Chat"])
-    
-    # A2A Tab
-    with tab_a2a:
-        st.subheader("📡 Manual A2A Chat")
-        st.markdown("Manually chat with the agent using A2A protocol to book a meeting through conversation.")
-        
-        # Display A2A endpoint if available
-        if a2a_endpoint:
-            st.info(f"**A2A Service Endpoint:** `{a2a_endpoint}`")
-        else:
-            st.warning("⚠️ A2A endpoint not found. Please resolve the DID first.")
-        
-        st.markdown("---")
-        
-        # Initialize chat history in session state
-        if 'a2a_chat_history' not in st.session_state:
-            st.session_state.a2a_chat_history = []
-        
-        # Display chat history
-        st.subheader("💬 Chat")
-        
-        # Chat container
-        chat_container = st.container()
-        
-        with chat_container:
-            # Display chat messages
-            for idx, message in enumerate(st.session_state.a2a_chat_history):
-                if message.get('role') == 'user':
-                    with st.chat_message("user"):
-                        st.write(message.get('content', ''))
-                elif message.get('role') == 'assistant':
-                    with st.chat_message("assistant"):
-                        st.write(message.get('content', ''))
-        
-        st.markdown("---")
-        
-        # Chat input - only enable if A2A endpoint is available
-        chat_enabled_a2a = a2a_endpoint is not None and A2A_CLIENT_AVAILABLE
-        
-        # Debug info expander
-        with st.expander("🔧 Debug Info", expanded=False):
-            import sys
-            import json
-            import os
-            
-            st.subheader("System Info")
-            st.code(f"""
-Python executable: {sys.executable}
-A2A_CLIENT_AVAILABLE: {A2A_CLIENT_AVAILABLE}
-A2A endpoint: {a2a_endpoint}
-Chat enabled: {chat_enabled_a2a}
-            """.strip())
-            
-            if not A2A_CLIENT_AVAILABLE:
-                try:
-                    from a2a_client.client import _import_error, A2A_SDK_AVAILABLE
-                    st.warning(f"A2A SDK Available: {A2A_SDK_AVAILABLE}")
-                    if _import_error:
-                        st.error(f"Import error: {_import_error}")
-                        st.code(str(_import_error))
-                except:
-                    st.error("Could not retrieve import error details")
-            
-            # Show A2A Client Debug Info from JSON file
-            st.markdown("---")
-            st.subheader("A2A Client Debug Info")
-            debug_file_path = "/tmp/a2a_client_debug.json"
-            
-            if os.path.exists(debug_file_path):
-                try:
-                    with open(debug_file_path, 'r') as f:
-                        debug_data = json.load(f)
-                    
-                    st.success(f"✅ Last request to: `{debug_data.get('endpoint', 'N/A')}`")
-                    
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Chunks Received", debug_data.get('chunks_received', 0))
-                    with col2:
-                        st.metric("Text Extracted", "✅ Yes" if debug_data.get('text_extracted') else "❌ No")
-                    with col3:
-                        st.metric("Text Length", debug_data.get('text_length', 0))
-                    
-                    st.markdown("**Message sent:**")
-                    st.code(debug_data.get('message', 'N/A'))
-                    
-                    st.markdown("**Streaming:**")
-                    st.code(f"Supports streaming: {debug_data.get('supports_streaming', False)}")
-                    
-                    # Show chunk summary
-                    st.markdown("**Chunks received:**")
-                    raw_chunks = debug_data.get('raw_chunks', [])
-                    for i, chunk_info in enumerate(raw_chunks):
-                        with st.expander(f"Chunk {i+1}: {chunk_info.get('type', 'Unknown')}", expanded=False):
-                            st.json(chunk_info.get('data', {}))
-                    
-                    # Button to view full debug file
-                    if st.button("📄 View Full Debug JSON"):
-                        st.json(debug_data)
-                        
-                except Exception as e:
-                    st.error(f"Failed to read debug file: {e}")
-            else:
-                st.info("No debug info available yet. Send a message to generate debug data.")
-        
-        if not chat_enabled_a2a:
-            if not a2a_endpoint:
-                st.warning("⚠️ A2A endpoint not available. Please resolve the DID first.")
-            elif not A2A_CLIENT_AVAILABLE:
-                st.warning("⚠️ A2A client not available. Please install required dependencies.")
-                st.info("💡 Check the Debug Info expander above for details about the import error.")
-        
-        user_input_a2a = st.chat_input(
-            "Type your message to the agent..." if chat_enabled_a2a else "Connect to agent first...",
-            disabled=not chat_enabled_a2a,
-            key="a2a_chat_input"
-        )
-        
-        if user_input_a2a and chat_enabled_a2a:
-            # Add user message to chat history
-            st.session_state.a2a_chat_history.append({
-                'role': 'user',
-                'content': user_input_a2a
-            })
-            
-            # Display user message immediately
-            with st.chat_message("user"):
-                st.write(user_input_a2a)
-            
-            # Send message via A2A client
-            with st.chat_message("assistant"):
-                with st.spinner("Connecting to agent..."):
-                    try:
-                        import asyncio
-                        import nest_asyncio
-                        
-                        # Allow nested event loops (needed for Streamlit)
-                        nest_asyncio.apply()
-                        
-                        # Run async A2A client call
-                        async def get_response():
-                            return await send_message_to_a2a_agent(
-                                endpoint_url=a2a_endpoint,
-                                message_text=user_input_a2a
-                            )
-                        
-                        # Run the async function
-                        loop = asyncio.get_event_loop()
-                        response = loop.run_until_complete(get_response())
-                        st.write(response)
-                        
-                        # Add assistant response to chat history
-                        st.session_state.a2a_chat_history.append({
-                            'role': 'assistant',
-                            'content': response
-                        })
-                    except ExceptionGroup as eg:
-                        # Handle ExceptionGroup (TaskGroup errors)
-                        error_details = []
-                        for exc in eg.exceptions:
-                            error_details.append(str(exc))
-                        error_msg = f"Connection error: {'; '.join(error_details)}"
-                        st.error(error_msg)
-                        st.exception(eg)  # Show full traceback in expander
-                        st.session_state.a2a_chat_history.append({
-                            'role': 'assistant',
-                            'content': error_msg
-                        })
-                    except Exception as e:
-                        # Extract more details from the error
-                        error_msg = f"Error communicating with agent: {str(e)}"
-                        error_type = type(e).__name__
-                        
-                        # Provide more helpful error messages
-                        if "ImportError" in error_type or "a2a-sdk" in str(e).lower():
-                            # Show detailed debug info for import errors
-                            import sys
-                            debug_info = f"""
-**A2A SDK Import Error**
-
-Python executable: `{sys.executable}`
-Error: {str(e)}
-
-**Troubleshooting:**
-1. Make sure you're using the correct Python environment
-2. Install a2a-sdk: `pip install 'a2a-sdk[http-server]'`
-3. Restart Streamlit after installing
-4. Check that Streamlit is using the same Python as your terminal
-                            """
-                            error_msg = debug_info
-                        elif "ConnectError" in error_type or "connection" in str(e).lower():
-                            error_msg = f"❌ Cannot connect to A2A server at `{a2a_endpoint}`. Please check:\n- The server is running\n- The URL is correct\n- Network connectivity"
-                        elif "TaskGroup" in str(e):
-                            error_msg = f"❌ Connection failed: {str(e)}\n\nThis usually means the A2A server is not accessible. Please verify the endpoint URL."
-                        
-                        st.error(error_msg)
-                        with st.expander("🔍 Error Details", expanded=True):
-                            st.exception(e)
-                            # Show additional debug info
-                            import sys
-                            st.code(f"""
-Python executable: {sys.executable}
-A2A_CLIENT_AVAILABLE: {A2A_CLIENT_AVAILABLE}
-Error type: {error_type}
-                            """.strip())
-                        st.session_state.a2a_chat_history.append({
-                            'role': 'assistant',
-                            'content': error_msg
-                        })
-            
-            st.rerun()
-        
         # Clear chat button
         if st.button("🗑️ Clear Chat", key="clear_a2a_chat"):
             st.session_state.a2a_chat_history = []
+            st.session_state.a2a_context_id = None  # Reset context_id when clearing chat
             st.rerun()
         
         st.markdown("---")
@@ -1307,14 +1651,41 @@ Error type: {error_type}
                     try:
                         import asyncio
                         
-                        # Run async MCP client call
+                        # Get Booking Agent's DID for partner_agent_id
+                        booking_agent_did_for_mcp = None
+                        try:
+                            server_state = get_server_state()
+                            agents = server_state.get('agents', {})
+                            # Find Calendar Booking Agent by name
+                            for did, agent_info in agents.items():
+                                if agent_info.get('name') == 'Calendar Booking Agent':
+                                    booking_agent_did_for_mcp = did
+                                    break
+                        except Exception as e:
+                            print(f"⚠️ Could not look up Calendar Booking Agent DID for MCP: {e}")
+                        
+                        # Run async MCP client call with timeout
+                        import nest_asyncio
+                        nest_asyncio.apply()
+                        
                         async def get_response():
                             async with init_session_from_url(mcp_endpoint) as session:
-                                return await send_message(session, user_input)
+                                return await send_message(session, user_input, partner_agent_id=booking_agent_did_for_mcp)
                         
-                        # Run the async function
-                        # Streamlit runs in a sync context, so asyncio.run() should work
-                        response = asyncio.run(get_response())
+                        # Run the async function with overall timeout to prevent hanging
+                        # Streamlit runs in sync context, so use nest_asyncio and loop.run_until_complete
+                        loop = asyncio.get_event_loop()
+                        try:
+                            response = loop.run_until_complete(
+                                asyncio.wait_for(
+                                    get_response(),
+                                    timeout=60.0  # 60 second overall timeout
+                                )
+                            )
+                        except asyncio.TimeoutError:
+                            response = "Error: The request took too long to process (60s timeout). Please try again."
+                        except Exception as e:
+                            response = f"Error: {str(e)}"
                         st.write(response)
                         
                         # Add assistant response to chat history
@@ -1322,6 +1693,10 @@ Error type: {error_type}
                             'role': 'assistant',
                             'content': response
                         })
+
+                        # Only rerun on successful message exchange
+                        st.rerun()
+
                     except ExceptionGroup as eg:
                         # Handle ExceptionGroup (TaskGroup errors)
                         error_details = []
@@ -1334,17 +1709,19 @@ Error type: {error_type}
                             'role': 'assistant',
                             'content': error_msg
                         })
+                        # Don't rerun on error - let user see the error message
+
                     except Exception as e:
                         # Extract more details from the error
                         error_msg = f"Error communicating with agent: {str(e)}"
                         error_type = type(e).__name__
-                        
+
                         # Provide more helpful error messages
                         if "ConnectError" in error_type or "connection" in str(e).lower():
                             error_msg = f"❌ Cannot connect to MCP server at `{mcp_endpoint}`. Please check:\n- The server is running\n- The URL is correct\n- Network connectivity"
                         elif "TaskGroup" in str(e):
                             error_msg = f"❌ Connection failed: {str(e)}\n\nThis usually means the MCP server is not accessible. Please verify the endpoint URL."
-                        
+
                         st.error(error_msg)
                         with st.expander("🔍 Error Details", expanded=False):
                             st.exception(e)
@@ -1352,8 +1729,7 @@ Error type: {error_type}
                             'role': 'assistant',
                             'content': error_msg
                         })
-            
-            st.rerun()
+                        # Don't rerun on error - let user see the error message
         
         # Clear chat button
         if st.button("🗑️ Clear Chat", key="clear_mcp_chat"):
@@ -2130,6 +2506,25 @@ def main():
                     help="Require manual confirmation before booking"
                 )
                 
+                automation_level = st.slider(
+                    "Automation Level",
+                    min_value=1,
+                    max_value=5,
+                    value=getattr(st.session_state.preferences, 'automation_level', 3),
+                    step=1,
+                    help="1 = Manual (requires approval), 5 = Fully Automated (agent makes decisions)"
+                )
+                
+                # Display automation level description
+                automation_descriptions = {
+                    1: "🔴 Manual - All decisions require your approval",
+                    2: "🟠 Low - Agent suggests, you decide",
+                    3: "🟡 Medium - Agent decides on routine bookings",
+                    4: "🟢 High - Agent handles most bookings automatically",
+                    5: "🔵 Fully Automated - Agent makes all booking decisions"
+                }
+                st.caption(f"**{automation_descriptions.get(automation_level, 'Unknown level')}**")
+                
                 st.subheader("Partner Preferences")
                 
                 preferred_partners_str = st.text_area(
@@ -2208,6 +2603,7 @@ Examples:
                         max_meetings_per_week=max_per_week,
                         auto_accept_preferred_times=auto_accept,
                         require_confirmation=require_confirm,
+                        automation_level=automation_level,
                         preferred_partners=preferred_partners_list,
                         blocked_partners=blocked_partners_list,
                         min_trust_score=min_trust,
@@ -2244,6 +2640,15 @@ Examples:
         
         st.write(f"**Min Trust Score:** {prefs.min_trust_score:.1f}")
         st.write(f"**Auto-Accept:** {'✅' if prefs.auto_accept_preferred_times else '❌'}")
+        automation_level = getattr(prefs, 'automation_level', 3)
+        automation_descriptions = {
+            1: "🔴 Manual",
+            2: "🟠 Low",
+            3: "🟡 Medium",
+            4: "🟢 High",
+            5: "🔵 Fully Automated"
+        }
+        st.write(f"**Automation Level:** {automation_level}/5 - {automation_descriptions.get(automation_level, 'Unknown')}")
         st.write(f"**Allow New Partners:** {'✅' if prefs.allow_new_partners else '❌'}")
         
         if prefs.instructions:
@@ -2742,11 +3147,18 @@ Examples:
     if display_events:
         for event in display_events:
             event_status = get_status_value(event.status)
-            with st.expander(
-                f"{event.time.strftime('%Y-%m-%d %H:%M')} - {event.partner_agent_id} ({event_status})"
-            ):
+            # Use title as main text, fallback to partner + status if no title
+            event_title = getattr(event, 'title', None)
+            if event_title:
+                event_display_text = f"{event_title} - {event.time.strftime('%Y-%m-%d %H:%M')} ({event_status})"
+            else:
+                event_display_text = f"{event.partner_agent_id} - {event.time.strftime('%Y-%m-%d %H:%M')} ({event_status})"
+            
+            with st.expander(event_display_text):
                 col1, col2 = st.columns([3, 1])
                 with col1:
+                    if event_title:
+                        st.write(f"**Title:** {event_title}")
                     st.write(f"**Event ID:** `{event.event_id}`")
                     st.write(f"**Partner:** {event.partner_agent_id}")
                     st.write(f"**Status:** {event_status}")

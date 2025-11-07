@@ -373,65 +373,217 @@ async def cancel_event(session: ClientSession, event_id: str) -> CallToolResult:
     )
 
 
-async def send_message(session: ClientSession, message: str) -> str:
+async def send_message(session: ClientSession, message: str, partner_agent_id: str = None) -> str:
     """Send a natural language message to the MCP server and get a response.
     
-    This is a helper function that attempts to interpret the message and call
-    appropriate MCP tools. For now, it's a simple implementation that can be
-    extended to use LLM-based interpretation.
+    Uses an LLM to interpret the message and call appropriate MCP tools.
     
     Args:
         session: The active ClientSession.
         message: The natural language message to send.
+        partner_agent_id: Optional partner agent ID for booking requests.
         
     Returns:
         A response string from the agent.
     """
-    # For now, this is a placeholder that will be enhanced
-    # In a full implementation, this would:
-    # 1. Parse the message to determine intent
-    # 2. Call appropriate MCP tools
-    # 3. Format and return the response
+    import json
+    from datetime import datetime, timedelta
+    from common.utils import init_api_key
     
-    # Simple keyword-based routing for now
-    message_lower = message.lower()
+    # Initialize API key for LLM
+    try:
+        init_api_key()
+    except ValueError as e:
+        logger.error(f"Failed to initialize API key: {e}")
+        return f"Error: {e}. Please set GEMINI_API_TOKEN environment variable."
     
-    if 'available' in message_lower or 'slot' in message_lower or 'time' in message_lower:
-        # Try to extract dates from message (simplified)
-        # In production, use an LLM or NLP library
-        from datetime import datetime, timedelta
-        start_date = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%dT09:00:00')
-        end_date = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%dT17:00:00')
+    # Get available tools from MCP session
+    try:
+        tools_result = await session.list_tools()
+        available_tools = tools_result.tools if hasattr(tools_result, 'tools') else []
+        logger.info(f"Available MCP tools: {[tool.name for tool in available_tools]}")
+    except Exception as e:
+        logger.error(f"Failed to list tools: {e}")
+        available_tools = []
+    
+    # Build tool descriptions for LLM
+    tools_description = []
+    for tool in available_tools:
+        tool_desc = {
+            "name": tool.name,
+            "description": tool.description or "",
+            "parameters": {}
+        }
+        # inputSchema is a dict (JSON Schema), not an object
+        if hasattr(tool, 'inputSchema') and tool.inputSchema:
+            input_schema = tool.inputSchema
+            # Handle both dict and object types
+            if isinstance(input_schema, dict):
+                properties = input_schema.get('properties', {})
+                tool_desc["parameters"] = {
+                    prop: {
+                        "type": properties[prop].get('type', 'string'),
+                        "description": properties[prop].get('description', '')
+                    }
+                    for prop in properties
+                }
+            elif hasattr(input_schema, 'properties'):
+                # Handle object with properties attribute
+                tool_desc["parameters"] = {
+                    prop: {
+                        "type": getattr(input_schema.properties[prop], 'type', 'string'),
+                        "description": getattr(input_schema.properties[prop], 'description', '')
+                    }
+                    for prop in input_schema.properties
+                }
+        tools_description.append(tool_desc)
+    
+    # Use LLM to interpret the message and determine which tool to call
+    try:
+        try:
+            import litellm
+            from litellm import acompletion
+        except ImportError:
+            logger.error("litellm is not installed. Please install it with: pip install litellm")
+            return "Error: litellm is not installed. Please install it to use LLM-based message interpretation."
+        
+        # Build prompt for LLM
+        tools_json = json.dumps(tools_description, indent=2)
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        tomorrow_date = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+        
+        system_prompt = f"""You are a helpful assistant that interprets user messages and calls the appropriate MCP tools.
+
+Available tools:
+{tools_json}
+
+Current date: {current_date}
+Tomorrow: {tomorrow_date}
+
+When the user wants to book a meeting, use the partner_agent_id: {partner_agent_id or 'agent-beta-42'}
+
+Your task:
+1. Analyze the user's message
+2. Determine which tool to call
+3. Extract the required parameters from the message
+4. Return a JSON object with:
+   - "tool": tool name
+   - "arguments": object with tool parameters
+
+For date/time parsing:
+- "tomorrow" means {tomorrow_date}
+- Parse times like "2pm" to 24-hour format (14:00)
+- Convert durations like "30 min" to "30m", "1 hour" to "1h"
+- Use ISO format for dates: YYYY-MM-DDTHH:MM:SS
+
+Example response:
+{{
+  "tool": "requestBooking",
+  "arguments": {{
+    "time": "2024-01-16T14:00:00",
+    "duration": "30m",
+    "partner_agent_id": "{partner_agent_id or 'agent-beta-42'}"
+  }}
+}}"""
+
+        user_prompt = f"User message: {message}"
+
+        # Call LLM
+        model = os.getenv('LITELLM_MODEL', 'gemini/gemini-2.0-flash')
+        logger.info(f"Calling LLM ({model}) to interpret message: {message[:100]}...")
+        
+        # Build messages
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        # Try with response_format first (for OpenAI-compatible models)
+        # Add timeout to prevent hanging
+        try:
+            response = await asyncio.wait_for(
+                acompletion(
+                    model=model,
+                    messages=messages,
+                    temperature=0.0,
+                    response_format={"type": "json_object"}
+                ),
+                timeout=30.0  # 30 second timeout for LLM call
+            )
+        except asyncio.TimeoutError:
+            logger.error("LLM call timed out after 30 seconds")
+            return "Error: The request took too long to process. Please try again with a simpler request."
+        except Exception as e:
+            # Fallback: try without response_format (for models that don't support it)
+            logger.warning(f"Failed with response_format, trying without: {e}")
+            # Add instruction to return JSON in the prompt instead
+            user_prompt_with_json = f"{user_prompt}\n\nIMPORTANT: You must respond with ONLY a valid JSON object, no other text. Format: {{\"tool\": \"tool_name\", \"arguments\": {{...}}}}"
+            try:
+                response = await asyncio.wait_for(
+                    acompletion(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt_with_json}
+                        ],
+                        temperature=0.0
+                    ),
+                    timeout=30.0  # 30 second timeout for fallback LLM call
+                )
+            except asyncio.TimeoutError:
+                logger.error("LLM call (fallback) timed out after 30 seconds")
+                return "Error: The request took too long to process. Please try again with a simpler request."
+        
+        # Extract tool call from LLM response
+        llm_response = response.choices[0].message.content
+        logger.info(f"LLM response: {llm_response}")
+        
+        # Clean up response - remove markdown code blocks if present
+        cleaned_response = llm_response.strip()
+        if cleaned_response.startswith("```json"):
+            cleaned_response = cleaned_response[7:]  # Remove ```json
+        elif cleaned_response.startswith("```"):
+            cleaned_response = cleaned_response[3:]  # Remove ```
+        if cleaned_response.endswith("```"):
+            cleaned_response = cleaned_response[:-3]  # Remove closing ```
+        cleaned_response = cleaned_response.strip()
+        
+        # Parse JSON response
+        try:
+            tool_call = json.loads(cleaned_response)
+            tool_name = tool_call.get("tool")
+            tool_args = tool_call.get("arguments", {})
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse LLM response as JSON: {e}")
+            logger.error(f"Cleaned response: {cleaned_response}")
+            return f"I understood your message, but had trouble processing it. Please try rephrasing. Error: {str(e)}"
+        
+        if not tool_name:
+            return "I couldn't determine which action to take. Please be more specific about what you'd like to do."
+        
+        # Call the appropriate tool with timeout
+        logger.info(f"Calling tool: {tool_name} with arguments: {tool_args}")
         
         try:
-            result = await request_available_slots(session, start_date, end_date, "30m")
-            if result.content and len(result.content) > 0:
-                return result.content[0].text
-            return "Available slots retrieved. (Response format may vary)"
-        except Exception as e:
-            return f"Error getting available slots: {str(e)}"
-    
-    elif 'pending' in message_lower or 'request' in message_lower:
-        try:
-            result = await get_pending_requests(session)
-            if result.content and len(result.content) > 0:
-                return result.content[0].text
-            return "Pending requests retrieved."
-        except Exception as e:
-            return f"Error getting pending requests: {str(e)}"
-    
-    elif 'events' in message_lower or 'calendar' in message_lower:
-        try:
-            result = await get_calendar_events(session)
-            if result.content and len(result.content) > 0:
-                return result.content[0].text
-            return "Calendar events retrieved."
-        except Exception as e:
-            return f"Error getting calendar events: {str(e)}"
-    
-    else:
-        # Default response - in production, this would use an LLM to interpret
-        return f"I received your message: '{message}'. I can help you with:\n- Finding available time slots\n- Checking pending requests\n- Viewing calendar events\n- Booking meetings\n\nPlease be more specific about what you'd like to do."
+            result = await asyncio.wait_for(
+                session.call_tool(tool_name, tool_args),
+                timeout=30.0  # 30 second timeout for tool call
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"Tool call '{tool_name}' timed out after 30 seconds")
+            return f"Error: The tool '{tool_name}' took too long to execute. Please try again."
+        
+        # Extract and return response
+        if result.content and len(result.content) > 0:
+            return result.content[0].text
+        elif hasattr(result, 'text'):
+            return result.text
+        else:
+            return f"Tool '{tool_name}' executed successfully, but no response text was returned."
+            
+    except Exception as e:
+        logger.error(f"Error in LLM-based message interpretation: {e}", exc_info=True)
+        return f"Error processing your message: {str(e)}. Please try rephrasing your request."
 
 
 # Test util
