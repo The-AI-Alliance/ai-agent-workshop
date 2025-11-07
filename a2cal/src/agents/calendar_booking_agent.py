@@ -16,6 +16,7 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import SseServerParams
 from google.genai import types as genai_types
+from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPServerParams
 
 
 logger = logging.getLogger(__name__)
@@ -50,7 +51,7 @@ class CalendarBookingAgent(BaseAgent):
         # For Streamable HTTP, use the base /mcp endpoint (not /sse)
         # SseServerParams works for both SSE and Streamable HTTP transports
         mcp_toolset = MCPToolset(
-            connection_params=SseServerParams(url=config.url)
+            connection_params=StreamableHTTPServerParams(url=config.url)
         )
         tools = await mcp_toolset.get_tools()
 
