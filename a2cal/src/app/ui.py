@@ -12,6 +12,11 @@ from streamlit_calendar import calendar as st_calendar
 import importlib.util
 import io
 
+# Module-level debug print to confirm file is loaded
+print("\n" + "="*80)
+print("[UI.PY] ✅ MODULE LOADED - ui.py is being imported!")
+print("="*80 + "\n")
+
 # Try to import optional dependencies
 try:
     from pyngrok import ngrok
@@ -823,9 +828,14 @@ def use_agent_to_book_page():
                 print("[UI] 🚀 AUTOMATED BOOKING BUTTON CLICKED!")
                 print("="*80)
                 
+                # Show visible feedback in UI
+                st.success("✅ Button clicked! Starting automated booking...")
+                st.write("🔍 **Debug**: Button handler is executing")
+                
                 # Initialize booking automation
                 from a2a_client.booking_automation import BookingAutomation, MeetingPreferences
                 print("[UI] ✓ Imported BookingAutomation and MeetingPreferences")
+                st.write("✓ Imported booking modules")
                 
                 # Convert sidebar preferences to MeetingPreferences
                 # Use natural language for the AI to interpret
@@ -1464,7 +1474,7 @@ def proposed_events_logs_page():
             
             # Quick actions
             st.markdown("**Quick Actions**")
-            action_col1, action_col2, action_col3 = st.columns(3)
+            action_col1, action_col2, action_col3, action_col4 = st.columns(4)
             
             with action_col1:
                 if st.button("✅ Accept", key=f"accept_proposed_{event.event_id}", type="primary", use_container_width=True):
@@ -1487,6 +1497,45 @@ def proposed_events_logs_page():
                         st.error("❌ Failed to reject event")
             
             with action_col3:
+                if st.button("📋 View Logs", key=f"logs_proposed_{event.event_id}", use_container_width=True):
+                    # Show logs in an expander
+                    with st.expander("📋 Event Logs", expanded=True):
+                        st.code(f"""
+Event ID: {event.event_id}
+Partner Agent: {event.partner_agent_id}
+Status: {get_status_value(event.status)}
+Created: {event.created_at.strftime('%Y-%m-%d %H:%M:%S')}
+Updated: {event.updated_at.strftime('%Y-%m-%d %H:%M:%S') if hasattr(event, 'updated_at') and event.updated_at else 'N/A'}
+
+Time: {event.time.strftime('%Y-%m-%d %H:%M')}
+Duration: {event.duration}
+
+Full Event Data:
+{json.dumps(event.to_dict() if hasattr(event, 'to_dict') else event.__dict__, indent=2, default=str)}
+                        """, language="text")
+                        
+                        # Add download button for logs
+                        log_content = f"""Event ID: {event.event_id}
+Partner Agent: {event.partner_agent_id}
+Status: {get_status_value(event.status)}
+Created: {event.created_at.strftime('%Y-%m-%d %H:%M:%S')}
+Updated: {event.updated_at.strftime('%Y-%m-%d %H:%M:%S') if hasattr(event, 'updated_at') and event.updated_at else 'N/A'}
+
+Time: {event.time.strftime('%Y-%m-%d %H:%M')}
+Duration: {event.duration}
+
+Full Event Data:
+{json.dumps(event.to_dict() if hasattr(event, 'to_dict') else event.__dict__, indent=2, default=str)}
+"""
+                        st.download_button(
+                            label="💾 Download Logs",
+                            data=log_content,
+                            file_name=f"event_{event.event_id}_logs.txt",
+                            mime="text/plain",
+                            key=f"download_log_{event.event_id}"
+                        )
+            
+            with action_col4:
                 if st.button("🗑️ Delete", key=f"delete_proposed_{event.event_id}", use_container_width=True):
                     if st.session_state.calendar.remove_event(event.event_id):
                         db_adapter.delete_event(event.event_id)

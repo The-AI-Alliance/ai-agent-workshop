@@ -37,9 +37,11 @@ def config_logging():
     ).upper()
     logging.basicConfig(level=getattr(logging, log_level, logging.INFO))
     
-    # Suppress LiteLLM debug logs
+    # Suppress noisy debug logs
     logging.getLogger('LiteLLM').setLevel(logging.WARNING)
     logging.getLogger('litellm').setLevel(logging.WARNING)
+    logging.getLogger('google_genai.types').setLevel(logging.WARNING)
+    logging.getLogger('google.generativeai').setLevel(logging.WARNING)
 
 
 def config_logger(logger):
