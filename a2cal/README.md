@@ -25,7 +25,7 @@
    export GEMINI_API_TOKEN=your_token_here
    ```
 
-### Installation & Running
+### Option 1: Local Installation & Running
 
 ```bash
 # Navigate to a2cal directory
@@ -44,14 +44,73 @@ Or using uv directly:
 # Install dependencies
 uv sync
 
-# Run the application
-uv run python -m src.main
+# Run the application (requires setting PYTHONPATH)
+cd src && PYTHONPATH="$PWD:$PYTHONPATH" uv run python main.py
 ```
 
 The application will start:
 - **Streamlit UI**: http://localhost:8501
 - **MCP Server**: http://localhost:8000/mcp
-- **A2A Server**: http://localhost:10000
+- **A2A Server**: http://localhost:8000/agent
+
+### Option 2: Docker Installation & Running
+
+#### Using Docker Compose (Recommended)
+
+```bash
+# Navigate to a2cal directory
+cd a2cal
+
+# Create .env file with your API token
+echo "GEMINI_API_TOKEN=your_token_here" > .env
+
+# Build and start services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop services
+docker-compose down
+```
+
+#### Using Docker directly
+
+```bash
+# Build the image
+docker build -t a2cal:latest .
+
+# Run the container
+docker run -d \
+  --name a2cal \
+  -p 8000:8000 \
+  -p 8501:8501 \
+  -e GEMINI_API_TOKEN=your_token_here \
+  -v a2cal-data:/data \
+  a2cal:latest
+
+# View logs
+docker logs -f a2cal
+
+# Stop and remove container
+docker stop a2cal && docker rm a2cal
+```
+
+#### Run Standalone MCP Server
+
+```bash
+# Using docker-compose with profile
+docker-compose --profile mcp-standalone up -d
+
+# Or using docker directly
+docker run -d \
+  --name a2cal-mcp \
+  -p 10100:10100 \
+  -e GEMINI_API_TOKEN=your_token_here \
+  -v a2cal-data:/data \
+  a2cal:latest \
+  python src/main.py --mcp-standalone --mcp-port 10100 --mcp-host 0.0.0.0
+```
 
 ### Available Make Commands
 
@@ -299,14 +358,117 @@ python -m src.mcp.server
 python -m src.agents --host localhost --port 10101 --agent-card path/to/agent_card.json
 ```
 
+## Build Instructions
+
+### Building from Source
+
+#### Local Build with uv
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd a2cal
+
+# Install dependencies
+uv sync
+
+# Build the package
+uv build
+
+# The build artifacts will be in dist/
+ls -la dist/
+```
+
+#### Docker Build
+
+```bash
+# Build the Docker image
+docker build -t a2cal:latest .
+
+# Test the build
+docker run --rm a2cal:latest python -c "import sys; sys.path.insert(0, '/app/src'); import mmcp.server; print('✅ Build successful')"
+
+# Tag for deployment
+docker tag a2cal:latest your-registry/a2cal:latest
+docker push your-registry/a2cal:latest
+```
+
+#### Build with Docker Compose
+
+```bash
+# Build all services
+docker-compose build
+
+# Build specific service
+docker-compose build a2cal
+
+# Build without cache
+docker-compose build --no-cache
+```
+
+### CI/CD
+
+The repository includes a GitHub Actions workflow (`.github/workflows/ci.yml`) that:
+- Tests on Python 3.10, 3.11, 3.12, and 3.13
+- Verifies package can be built with `uv build`
+- Checks that all imports work correctly
+- Runs tests (if available)
+- Builds and tests Docker image
+- Uses caching for faster builds
+
+To run locally:
+```bash
+# Install dependencies
+make install
+
+# Run build check
+uv build
+
+# Verify imports
+cd src && PYTHONPATH="$PWD:$PYTHONPATH" uv run python -c "import mmcp.server; import common.utils; print('✅ Imports OK')"
+```
+
 ## Development
 
 The system is designed to be extensible:
 
 - **Add new agents**: Create new agent classes inheriting from `BaseAgent`
-- **Add new tools**: Register new `@mcp.tool()` functions in `src/mcp/server.py`
+- **Add new tools**: Register new `@mcp.tool()` functions in `src/mmcp/tools.py`
 - **Customize calendar logic**: Modify `src/services/calendar-service/calendar_api.py`
 - **Extend persistence**: Add new tables/methods in `src/services/calendar-service/db_adapter.py`
+
+### Development Environment Setup
+
+```bash
+# Install with dev dependencies
+uv sync
+
+# Install pre-commit hooks (if available)
+pre-commit install
+
+# Run linter
+make lint
+
+# Format code
+make format
+
+# Clean build artifacts
+make clean
+```
+
+### Important Note on Module Imports
+
+This project uses a **src-layout** where modules (`mmcp`, `common`, `agents`, etc.) are in the `src/` directory but imported as top-level modules. When running Python scripts directly:
+
+```bash
+# ✅ Correct - cd to src and set PYTHONPATH
+cd src && PYTHONPATH="$PWD:$PYTHONPATH" uv run python main.py
+
+# ❌ Wrong - imports will fail
+uv run python -m src.main
+```
+
+The `make run` command handles this automatically.
 
 ## License
 

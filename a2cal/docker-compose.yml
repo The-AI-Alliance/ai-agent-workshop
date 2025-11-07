@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  a2cal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: a2cal:latest
+    container_name: a2cal
+    ports:
+      - "8000:8000"  # Main server (MCP + A2A)
+      - "8501:8501"  # Streamlit UI
+    volumes:
+      # Persist database
+      - a2cal-data:/data
+      # Mount .env file for secrets (optional)
+      - ./.env:/app/.env:ro
+    environment:
+      # Required: Set your Gemini API token
+      - GEMINI_API_TOKEN=${GEMINI_API_TOKEN}
+      # Optional: Override default model
+      - LITELLM_MODEL=${LITELLM_MODEL:-gemini/gemini-2.0-flash-exp}
+      # Optional: Enable debug mode
+      - DEBUG=${DEBUG:-false}
+      # Database path (in mounted volume)
+      - DATABASE_PATH=/data/calendar_agent.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Standalone MCP server on different port
+  a2cal-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: a2cal:latest
+    container_name: a2cal-mcp-standalone
+    ports:
+      - "10100:10100"  # Standalone MCP server
+    volumes:
+      - a2cal-data:/data
+      - ./.env:/app/.env:ro
+    environment:
+      - GEMINI_API_TOKEN=${GEMINI_API_TOKEN}
+      - LITELLM_MODEL=${LITELLM_MODEL:-gemini/gemini-2.0-flash-exp}
+      - DEBUG=${DEBUG:-false}
+      - DATABASE_PATH=/data/calendar_agent.db
+    command: ["python", "src/main.py", "--mcp-standalone", "--mcp-port", "10100", "--mcp-host", "0.0.0.0"]
+    restart: unless-stopped
+    profiles:
+      - mcp-standalone
+
+volumes:
+  a2cal-data:
+    driver: local
