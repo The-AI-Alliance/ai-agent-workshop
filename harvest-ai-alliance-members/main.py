@@ -10,7 +10,7 @@ from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIAugmentedLLM
 
 app = MCPApp(name="harvest-ai-alliance-members")
 
-async def main(mode="member"):
+async def main(mode="member", max_urls=None):
     async with app.run():
 
         agent = Agent(
@@ -34,6 +34,10 @@ async def main(mode="member"):
             urls = [line.strip() for line in urls_path.read_text().splitlines() if line.strip()]
             print(f"Found {len(urls)} URLs to harvest from {urls_filename}")
 
+            if max_urls is not None:
+                urls = urls[:max_urls]
+                print(f"Limiting to {len(urls)} URLs based on --max {max_urls}")
+
             # Load the prompt template
             prompt_path = Path(__file__).parent / "summarize-prompt.md"
             prompt_template = prompt_path.read_text().strip()
@@ -42,7 +46,7 @@ async def main(mode="member"):
             summaries_dir = Path(__file__).parent / "data" / summaries_dirname
             summaries_dir.mkdir(parents=True, exist_ok=True)
 
-            for url in urls[:10]:
+            for url in urls:
                 # generate a filename for the summary
                 parsed = urlparse(url)
                 hostname = parsed.netloc or parsed.path.split("/")[0]
@@ -80,6 +84,15 @@ Examples:
         default="member",
         help="Process member URLs or sponsor URLs (default: member)"
     )
+    parser.add_argument(
+        "--max",
+        type=int,
+        metavar="N",
+        help="Maximum number of URLs to process (default: no limit)"
+    )
     args = parser.parse_args()
-    
-    asyncio.run(main(mode=args.mode))
+
+    if args.max is not None and args.max < 0:
+        parser.error("--max must be a non-negative integer")
+
+    asyncio.run(main(mode=args.mode, max_urls=args.max))

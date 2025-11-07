@@ -1,8 +1,0 @@
-Here’s an authoritative distillation based on Faction’s website.
-
-Faction Technology is a South San Francisco–based company building a supervised driverless platform for right-sized, electric micro‑EV fleets used in last‑mile delivery and vehicle on‑demand services. Its end‑to‑end Driverless Vehicle Platform combines onboard safety‑critical autonomy with DriveLink (digital vehicle platform with OTA updates) and TeleAssist, a trajectory‑based remote assistance system, plus cloud fleet management, APIs, and customer apps that integrate with fulfillment/order systems. The company emphasizes pragmatic, cost‑effective deployments in controlled commercial environments across airfields, grocery, fast food, and delivery fleet use cases; recent updates include self‑driving light‑EV testing in Houston (2024), funding led by TDK Ventures, and partnerships/collaborations with NVIDIA (Inception), Arcimoto, ElectraMeccanica, and GoCar Tours. Founded in 2020, Faction states its team has prior AV milestones, including early commercial deployments (2018) and driverless highway operations without a safety driver (2019).
-
-- HQ: 20 S Linden Ave Ste 5A, South San Francisco, CA 94080, USA
-- Core tech: DriveLink (digital vehicle platform, OTA) + TeleAssist (remote trajectory assistance) for supervised micro‑EV fleets; cloud fleet management and APIs
-- Focus/verticals: last‑mile delivery and vehicle on‑demand; controlled environments in airfields, grocery, fast food, and commercial delivery fleets
-- Notable milestones/partners: 2024 Houston self‑driving light‑EV services; funding by TDK Ventures; partnerships with NVIDIA (Inception), Arcimoto, ElectraMeccanica, and GoCar Tours
