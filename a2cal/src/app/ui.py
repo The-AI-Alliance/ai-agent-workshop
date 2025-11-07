@@ -777,252 +777,13 @@ def use_agent_to_book_page():
         st.info(f"💬 MCP Endpoint: `{mcp_endpoint}`")
     st.markdown("---")
     
-    # Automatic Booking Section
-    if a2a_endpoint:
-        st.subheader("🤖 Automated AI Booking")
-        st.markdown("""
-        Let your **Calendar Booking Agent** use AI to intelligently negotiate with the target agent.
-        The agent will use your preferences from the sidebar to find the best meeting time.
-        """)
-        
-        # Show current preferences summary
-        with st.expander("📋 Current Preferences (from sidebar)", expanded=False):
-            prefs = st.session_state.preferences
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("**Time Preferences:**")
-                st.write(f"- Hours: {prefs.preferred_start_hour}:00 - {prefs.preferred_end_hour}:00")
-                st.write(f"- Days: {', '.join(prefs.preferred_days)}")
-                
-            with col2:
-                st.markdown("**Duration:**")
-                st.write(f"- Preferred: {prefs.preferred_duration}")
-                st.write(f"- Range: {prefs.min_duration} - {prefs.max_duration}")
-            
-            st.markdown("**Constraints:**")
-            st.write(f"- Buffer between meetings: {prefs.buffer_between_meetings} minutes")
-            st.write(f"- Max meetings per day: {prefs.max_meetings_per_day}")
-            
-            st.info("💡 Update preferences in the sidebar to change booking behavior")
-        
-        # Optional: Meeting title and description
-        with st.expander("📝 Meeting Details (Optional)", expanded=False):
-            meeting_title = st.text_input(
-                "Meeting Title",
-                placeholder="e.g., Project Review",
-                key="auto_booking_title"
-            )
-            meeting_description = st.text_area(
-                "Meeting Description",
-                placeholder="Optional description for the meeting",
-                key="auto_booking_description",
-                height=80
-            )
-        
-        # Book Meeting button
-        col1, col2, col3 = st.columns([2, 1, 2])
-        with col2:
-            if st.button("🤖 Let AI Book Meeting", type="primary", use_container_width=True, key="auto_book_button"):
-                print("\n" + "="*80)
-                print("[UI] 🚀 AUTOMATED BOOKING BUTTON CLICKED!")
-                print("="*80)
-                
-                # Show visible feedback in UI
-                st.success("✅ Button clicked! Starting automated booking...")
-                st.write("🔍 **Debug**: Button handler is executing")
-                
-                # Initialize booking automation
-                from a2a_client.booking_automation import BookingAutomation, MeetingPreferences
-                print("[UI] ✓ Imported BookingAutomation and MeetingPreferences")
-                st.write("✓ Imported booking modules")
-                
-                # Convert sidebar preferences to MeetingPreferences
-                # Use natural language for the AI to interpret
-                prefs = st.session_state.preferences
-                print(f"[UI] ✓ Retrieved preferences: {prefs}")
-                date_pref = f"within the next week, preferably on {', '.join(prefs.preferred_days)}"
-                time_pref = f"between {prefs.preferred_start_hour}:00 and {prefs.preferred_end_hour}:00"
-                
-                # Parse duration (e.g., "1h" -> 60 minutes)
-                duration_map = {"15m": 15, "30m": 30, "45m": 45, "1h": 60, "1.5h": 90, "2h": 120, "3h": 180}
-                duration_minutes = duration_map.get(prefs.preferred_duration, 60)
-                
-                preferences = MeetingPreferences(
-                    date=date_pref,
-                    time=time_pref,
-                    duration=duration_minutes,
-                    title=meeting_title if meeting_title else "Meeting",
-                    description=meeting_description if meeting_description else None,
-                    partner_agent_id=agent_did
-                )
-                print(f"[UI] ✓ Created MeetingPreferences: {preferences}")
-                
-                # Create status container
-                status_container = st.container()
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                print("[UI] ✓ Created Streamlit UI elements (progress bar, status text)")
-                
-                # Progress callback
-                async def update_progress(turn: int, status: str, message: str):
-                    progress = turn / 5  # Max 5 turns
-                    progress_bar.progress(min(progress, 1.0))
-                    status_text.markdown(f"**Turn {turn}/5:** {message}")
-                
-                # Get or create booking agent
-                print("[UI] Checking for existing booking agent...")
-                if 'booking_agent' not in st.session_state or st.session_state.booking_agent is None:
-                    print("[UI] No booking agent found, creating new one...")
-                    from agents.calendar_booking_agent import CalendarBookingAgent
-                    
-                    status_text.markdown("**Creating booking agent...**")
-                    print("[UI] Importing CalendarBookingAgent...")
-                    
-                    try:
-                        print("[UI] Creating CalendarBookingAgent instance...")
-                        st.session_state.booking_agent = CalendarBookingAgent(
-                            agent_name="Calendar Booking Agent",
-                            description="Intelligent agent that negotiates meeting bookings on your behalf",
-                            instructions="""You are an intelligent booking agent that helps schedule meetings.
-Your goal is to negotiate with other agents to find optimal meeting times based on user preferences.
-
-When communicating with other agents:
-1. Be professional and clear
-2. Share relevant preferences (time, date, duration)
-3. Ask for their availability
-4. Negotiate to find mutually agreeable times
-5. Confirm bookings once agreed upon
-
-Always prioritize the user's preferences while being flexible to find workable solutions."""
-                        )
-                        print("[UI] ✅ CalendarBookingAgent instance created successfully")
-                        status_text.markdown("**✅ Booking agent created**")
-                    except Exception as e:
-                        print(f"[UI] ❌ Failed to create booking agent: {e}")
-                        st.error(f"❌ Failed to create booking agent: {str(e)}")
-                        import traceback
-                        print(f"[UI] Traceback: {traceback.format_exc()}")
-                        with st.expander("🐛 Error Details"):
-                            st.code(traceback.format_exc())
-                        st.stop()
-                else:
-                    print("[UI] ✓ Using existing booking agent from session state")
-                
-                # Run booking automation with AI agent
-                print(f"[UI] Creating BookingAutomation instance (max_turns=5)...")
-                automation = BookingAutomation(max_turns=5)
-                print(f"[UI] ✓ BookingAutomation instance created")
-                
-                try:
-                    print(f"[UI] Setting up asyncio...")
-                    import asyncio
-                    import nest_asyncio
-                    nest_asyncio.apply()
-                    print(f"[UI] ✓ nest_asyncio applied")
-                    
-                    loop = asyncio.get_event_loop()
-                    print(f"[UI] ✓ Got event loop: {loop}")
-                    print(f"[UI] 🚀 Calling automation.book_meeting()...")
-                    print(f"[UI]    - target_agent_endpoint: {a2a_endpoint}")
-                    print(f"[UI]    - target_agent_did: {agent_did}")
-                    print(f"[UI]    - preferences: {preferences}")
-                    print(f"[UI] ⏳ Running async function with loop.run_until_complete()...")
-                    
-                    result = loop.run_until_complete(
-                        automation.book_meeting(
-                            target_agent_endpoint=a2a_endpoint,
-                            target_agent_did=agent_did,
-                            preferences=preferences,
-                            booking_agent=st.session_state.booking_agent,
-                            progress_callback=update_progress
-                        )
-                    )
-                    print(f"[UI] ✅ automation.book_meeting() completed!")
-                    print(f"[UI] Result: {result}")
-                    
-                    # Display result
-                    progress_bar.progress(1.0)
-                    
-                    if result['success']:
-                        st.success(f"✅ {result['message']}")
-                        
-                        if result.get('booking_details'):
-                            st.json(result['booking_details'])
-                    else:
-                        st.error(f"❌ {result['message']}")
-                    
-                    # Show conversation summary
-                    with st.expander("📜 Conversation History", expanded=False):
-                        st.markdown(automation.get_conversation_summary())
-                        
-                        for turn in result.get('conversation_history', []):
-                            st.markdown(f"### Turn {turn.turn_number}")
-                            st.markdown(f"**Sent:** {turn.message_sent}")
-                            st.markdown(f"**Received:** {turn.response_received}")
-                            st.markdown("---")
-                
-                except Exception as e:
-                    progress_bar.progress(0.0)
-                    status_text.markdown("**❌ Error occurred**")
-                    st.error(f"❌ Error during automated booking: {str(e)}")
-                    
-                    # Check for common issues
-                    error_str = str(e).lower()
-                    if 'timeout' in error_str:
-                        st.warning("⚠️ **Tip:** The MCP server connection timed out. Make sure your MCP server is running and accessible.")
-                    elif 'connection' in error_str or 'connect' in error_str:
-                        st.warning("⚠️ **Tip:** Cannot connect to MCP server. Check the server status in the sidebar.")
-                    elif 'a2a' in error_str:
-                        st.warning("⚠️ **Tip:** A2A communication issue. Verify the target agent's endpoint is correct.")
-                    
-                    import traceback
-                    with st.expander("🐛 Full Error Details"):
-                        st.code(traceback.format_exc())
-                    
-                    # Show conversation history if any was captured
-                    if automation.conversation_history:
-                        with st.expander("📜 Conversation Before Error"):
-                            for turn in automation.conversation_history:
-                                st.markdown(f"### Turn {turn.turn_number}")
-                                st.markdown(f"**Sent:** {turn.message_sent}")
-                                st.markdown(f"**Received:** {turn.response_received}")
-                                st.markdown("---")
-                
-                # Always show log file for debugging
-                st.markdown("---")
-                st.subheader("📋 Booking Automation Logs")
-                
-                log_file_path = Path("/tmp/booking_automation.log")
-                if log_file_path.exists():
-                    with st.expander("📋 View Log File", expanded=True):
-                        try:
-                            with open(log_file_path, 'r') as f:
-                                log_content = f.read()
-                            st.code(log_content, language="text")
-                            
-                            # Download button
-                            st.download_button(
-                                label="💾 Download Log",
-                                data=log_content,
-                                file_name="booking_automation.log",
-                                mime="text/plain",
-                                key="download_booking_log"
-                            )
-                        except Exception as e:
-                            st.error(f"Error reading log file: {e}")
-                else:
-                    st.info("📋 Log file will appear here when automated booking starts")
-        
-        st.markdown("---")
-    
-    # Create tabs for Manual A2A and MCP
-    tab_a2a, tab_mcp = st.tabs(["📡 Manual A2A Chat", "💬 MCP Chat"])
+    # Create tabs for A2A and MCP
+    tab_a2a, tab_mcp = st.tabs(["📡 A2A Chat", "💬 MCP Chat"])
     
     # A2A Tab
     with tab_a2a:
-        st.subheader("📡 Manual A2A Chat")
-        st.markdown("Manually chat with the agent using A2A protocol to book a meeting through conversation.")
+        st.subheader("📡 A2A Chat")
+        st.markdown("Chat with the agent using A2A protocol to book a meeting through conversation.")
         
         # Display A2A endpoint if available
         if a2a_endpoint:
@@ -1229,6 +990,233 @@ Error type: {error_type}
                         })
             
             st.rerun()
+        
+        # Automated AI Booking Section (visible button above Clear Chat)
+        if a2a_endpoint:
+            # Preferences and meeting details in expander
+            with st.expander("📋 Booking Preferences & Details", expanded=False):
+                # Show current preferences summary
+                with st.expander("📋 Current Preferences (from sidebar)", expanded=False):
+                    prefs = st.session_state.preferences
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**Time Preferences:**")
+                        st.write(f"- Hours: {prefs.preferred_start_hour}:00 - {prefs.preferred_end_hour}:00")
+                        st.write(f"- Days: {', '.join(prefs.preferred_days)}")
+                        
+                    with col2:
+                        st.markdown("**Duration:**")
+                        st.write(f"- Preferred: {prefs.preferred_duration}")
+                        st.write(f"- Range: {prefs.min_duration} - {prefs.max_duration}")
+                    
+                    st.markdown("**Constraints:**")
+                    st.write(f"- Buffer between meetings: {prefs.buffer_between_meetings} minutes")
+                    st.write(f"- Max meetings per day: {prefs.max_meetings_per_day}")
+                    
+                    st.info("💡 Update preferences in the sidebar to change booking behavior")
+                
+                # Optional: Meeting title and description
+                meeting_title = st.text_input(
+                    "Meeting Title",
+                    placeholder="e.g., Project Review",
+                    key="auto_booking_title"
+                )
+                meeting_description = st.text_area(
+                    "Meeting Description",
+                    placeholder="Optional description for the meeting",
+                    key="auto_booking_description",
+                    height=80
+                )
+            
+            # Automate button (visible, above Clear Chat)
+            if st.button("🤖 Automate", type="primary", use_container_width=True, key="automate_button_in_chat"):
+                print("\n" + "="*80)
+                print("[UI] 🚀 AUTOMATE BUTTON CLICKED IN A2A CHAT!")
+                print("="*80)
+                
+                # Show visible feedback in UI
+                st.success("✅ Starting automated booking...")
+                
+                # Initialize booking automation
+                from a2a_client.booking_automation import BookingAutomation, MeetingPreferences
+                print("[UI] ✓ Imported BookingAutomation and MeetingPreferences")
+                
+                # Convert sidebar preferences to MeetingPreferences
+                prefs = st.session_state.preferences
+                print(f"[UI] ✓ Retrieved preferences: {prefs}")
+                date_pref = f"within the next week, preferably on {', '.join(prefs.preferred_days)}"
+                time_pref = f"between {prefs.preferred_start_hour}:00 and {prefs.preferred_end_hour}:00"
+                
+                # Parse duration (e.g., "1h" -> 60 minutes)
+                duration_map = {"15m": 15, "30m": 30, "45m": 45, "1h": 60, "1.5h": 90, "2h": 120, "3h": 180}
+                duration_minutes = duration_map.get(prefs.preferred_duration, 60)
+                
+                preferences = MeetingPreferences(
+                    date=date_pref,
+                    time=time_pref,
+                    duration=duration_minutes,
+                    title=meeting_title if meeting_title else "Meeting",
+                    description=meeting_description if meeting_description else None,
+                    partner_agent_id=agent_did
+                )
+                print(f"[UI] ✓ Created MeetingPreferences: {preferences}")
+                
+                # Create status container
+                status_container = st.container()
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                print("[UI] ✓ Created Streamlit UI elements (progress bar, status text)")
+                
+                # Progress callback
+                async def update_progress(turn: int, status: str, message: str):
+                    progress = turn / 5  # Max 5 turns
+                    progress_bar.progress(min(progress, 1.0))
+                    status_text.markdown(f"**Turn {turn}/5:** {message}")
+                
+                # Get or create booking agent
+                print("[UI] Checking for existing booking agent...")
+                if 'booking_agent' not in st.session_state or st.session_state.booking_agent is None:
+                    print("[UI] No booking agent found, creating new one...")
+                    from agents.calendar_booking_agent import CalendarBookingAgent
+                    
+                    status_text.markdown("**Creating booking agent...**")
+                    print("[UI] Importing CalendarBookingAgent...")
+                    
+                    try:
+                        print("[UI] Creating CalendarBookingAgent instance...")
+                        st.session_state.booking_agent = CalendarBookingAgent(
+                            agent_name="Calendar Booking Agent",
+                            description="Intelligent agent that negotiates meeting bookings on your behalf",
+                            instructions="""You are an intelligent booking agent that helps schedule meetings.
+Your goal is to negotiate with other agents to find optimal meeting times based on user preferences.
+
+When communicating with other agents:
+1. Be professional and clear
+2. Share relevant preferences (time, date, duration)
+3. Ask for their availability
+4. Negotiate to find mutually agreeable times
+5. Confirm bookings once agreed upon
+
+Always prioritize the user's preferences while being flexible to find workable solutions."""
+                        )
+                        print("[UI] ✅ CalendarBookingAgent instance created successfully")
+                        status_text.markdown("**✅ Booking agent created**")
+                    except Exception as e:
+                        print(f"[UI] ❌ Failed to create booking agent: {e}")
+                        st.error(f"❌ Failed to create booking agent: {str(e)}")
+                        import traceback
+                        print(f"[UI] Traceback: {traceback.format_exc()}")
+                        with st.expander("🐛 Error Details"):
+                            st.code(traceback.format_exc())
+                        st.stop()
+                else:
+                    print("[UI] ✓ Using existing booking agent from session state")
+                
+                # Run booking automation with AI agent
+                print(f"[UI] Creating BookingAutomation instance (max_turns=5)...")
+                automation = BookingAutomation(max_turns=5)
+                print(f"[UI] ✓ BookingAutomation instance created")
+                
+                try:
+                    print(f"[UI] Setting up asyncio...")
+                    import asyncio
+                    import nest_asyncio
+                    nest_asyncio.apply()
+                    print(f"[UI] ✓ nest_asyncio applied")
+                    
+                    loop = asyncio.get_event_loop()
+                    print(f"[UI] ✓ Got event loop: {loop}")
+                    print(f"[UI] 🚀 Calling automation.book_meeting()...")
+                    print(f"[UI]    - target_agent_endpoint: {a2a_endpoint}")
+                    print(f"[UI]    - target_agent_did: {agent_did}")
+                    print(f"[UI]    - preferences: {preferences}")
+                    print(f"[UI] ⏳ Running async function with loop.run_until_complete()...")
+                    
+                    result = loop.run_until_complete(
+                        automation.book_meeting(
+                            target_agent_endpoint=a2a_endpoint,
+                            target_agent_did=agent_did,
+                            preferences=preferences,
+                            booking_agent=st.session_state.booking_agent,
+                            progress_callback=update_progress
+                        )
+                    )
+                    print(f"[UI] ✅ automation.book_meeting() completed!")
+                    print(f"[UI] Result: {result}")
+                    
+                    # Display result
+                    progress_bar.progress(1.0)
+                    
+                    if result['success']:
+                        st.success(f"✅ {result['message']}")
+                        
+                        if result.get('booking_details'):
+                            st.json(result['booking_details'])
+                    else:
+                        st.error(f"❌ {result['message']}")
+                    
+                    # Show conversation summary
+                    with st.expander("📜 Conversation History", expanded=False):
+                        st.markdown(automation.get_conversation_summary())
+                        
+                        for turn in result.get('conversation_history', []):
+                            st.markdown(f"### Turn {turn.turn_number}")
+                            st.markdown(f"**Sent:** {turn.message_sent}")
+                            st.markdown(f"**Received:** {turn.response_received}")
+                            st.markdown("---")
+                
+                except Exception as e:
+                    progress_bar.progress(0.0)
+                    status_text.markdown("**❌ Error occurred**")
+                    st.error(f"❌ Error during automated booking: {str(e)}")
+                    
+                    # Check for common issues
+                    error_str = str(e).lower()
+                    if 'timeout' in error_str:
+                        st.warning("⚠️ **Tip:** The MCP server connection timed out. Make sure your MCP server is running and accessible.")
+                    elif 'connection' in error_str or 'connect' in error_str:
+                        st.warning("⚠️ **Tip:** Cannot connect to MCP server. Check the server status in the sidebar.")
+                    elif 'a2a' in error_str:
+                        st.warning("⚠️ **Tip:** A2A communication issue. Verify the target agent's endpoint is correct.")
+                    
+                    import traceback
+                    with st.expander("🐛 Full Error Details"):
+                        st.code(traceback.format_exc())
+                    
+                    # Show conversation history if any was captured
+                    if automation.conversation_history:
+                        with st.expander("📜 Conversation Before Error"):
+                            for turn in automation.conversation_history:
+                                st.markdown(f"### Turn {turn.turn_number}")
+                                st.markdown(f"**Sent:** {turn.message_sent}")
+                                st.markdown(f"**Received:** {turn.response_received}")
+                                st.markdown("---")
+                
+                # Always show log file for debugging
+                st.markdown("---")
+                st.subheader("📋 Booking Automation Logs")
+                
+                log_file_path = Path("/tmp/booking_automation.log")
+                if log_file_path.exists():
+                    with st.expander("📋 View Log File", expanded=True):
+                        try:
+                            with open(log_file_path, 'r') as f:
+                                log_content = f.read()
+                            st.code(log_content, language="text")
+                            
+                            # Download button
+                            st.download_button(
+                                label="💾 Download Log",
+                                data=log_content,
+                                file_name="booking_automation.log",
+                                mime="text/plain",
+                                key="download_booking_log_chat"
+                            )
+                        except Exception as e:
+                            st.error(f"Error reading log file: {e}")
+                else:
+                    st.info("📋 Log file will appear here when automated booking starts")
         
         # Clear chat button
         if st.button("🗑️ Clear Chat", key="clear_a2a_chat"):
