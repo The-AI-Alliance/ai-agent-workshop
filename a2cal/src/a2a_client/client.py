@@ -352,6 +352,9 @@ async def send_message_to_a2a_agent(
                 else:
                     logger.warning(f"❌ Could not extract result_data from chunk!")
                 
+                # Flag to skip old parsing logic if we processed result_data
+                processed_result_data = False
+                
                 if result_data:
                     print(f"✅ Found result_data, checking kind...", file=sys.stderr)
                     logger.info(f"✅ Found result_data, checking kind...")
@@ -457,10 +460,12 @@ async def send_message_to_a2a_agent(
                     else:
                         print(f"   ⚠️ Unknown event kind: {event_kind}", file=sys.stderr)
                     
-                    continue  # Skip the old parsing logic below
+                    # Mark that we processed result_data, so skip old parsing logic
+                    processed_result_data = True
                 
                 # OLD LOGIC (fallback) - Handle streaming response - chunk is SendStreamingMessageResponse
-                if hasattr(chunk, 'root') and isinstance(chunk.root, SendStreamingMessageSuccessResponse):
+                # Only use this if we didn't already process result_data above
+                if not processed_result_data and hasattr(chunk, 'root') and isinstance(chunk.root, SendStreamingMessageSuccessResponse):
                     print(f"✅ [FALLBACK] Chunk has .root with SendStreamingMessageSuccessResponse", file=sys.stderr)
                     event = chunk.root.result
                     
