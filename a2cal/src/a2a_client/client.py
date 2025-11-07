@@ -112,7 +112,7 @@ async def send_message_to_a2a_agent(
     context_id: str = None,
     task_id: str = None,
     use_streaming: bool = True,
-) -> str:
+) -> tuple[str, str]:
     """Send a message to an A2A agent and get a response.
     
     Args:
@@ -209,6 +209,7 @@ async def send_message_to_a2a_agent(
         
         response_text = ""
         raw_chunks_debug = []  # Store raw chunks for debugging
+        extracted_context_id = context_id  # Start with provided context_id, extract from response if available
         
         if supports_streaming:
             # Use streaming (matching reference implementation)
@@ -343,6 +344,15 @@ async def send_message_to_a2a_agent(
                 if result_data:
                     logger.info(f"🎯 result_data type: {type(result_data)}")
                     logger.info(f"🎯 result_data has 'kind': {hasattr(result_data, 'kind')}")
+                    
+                    # Extract contextId from result_data for conversation continuity
+                    if isinstance(result_data, dict):
+                        if 'contextId' in result_data:
+                            extracted_context_id = result_data['contextId']
+                            logger.info(f"✅ Extracted contextId from result_data: {extracted_context_id}")
+                    elif hasattr(result_data, 'contextId'):
+                        extracted_context_id = result_data.contextId
+                        logger.info(f"✅ Extracted contextId from result_data: {extracted_context_id}")
                 else:
                     logger.warning(f"❌ Could not extract result_data from chunk!")
                 
@@ -675,6 +685,14 @@ async def send_message_to_a2a_agent(
                 if hasattr(response.root, 'result'):
                     event = response.root.result
                     
+                    # Extract contextId from non-streaming response
+                    if isinstance(event, Message) and hasattr(event, 'context_id'):
+                        extracted_context_id = event.context_id
+                        logger.info(f"✅ Extracted contextId from Message: {extracted_context_id}")
+                    elif hasattr(event, 'contextId'):
+                        extracted_context_id = event.contextId
+                        logger.info(f"✅ Extracted contextId from event: {extracted_context_id}")
+                    
                     # Handle Message
                     if isinstance(event, Message):
                         if hasattr(event, 'parts'):
@@ -778,5 +796,6 @@ async def send_message_to_a2a_agent(
             
             # Debug info is NOT appended - it will be shown in the UI debug expander
         
-        return response_text
+        # Return response text and context_id for conversation continuity
+        return response_text, extracted_context_id
 

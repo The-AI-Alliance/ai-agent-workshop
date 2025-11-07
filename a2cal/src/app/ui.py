@@ -356,11 +356,28 @@ def booking_page():
     with st.form("booking_form"):
         st.subheader("Meeting Details")
         
+        # Look up Calendar Booking Agent's DID for partner_id
+        booking_agent_did = None
+        try:
+            server_state = get_server_state()
+            agents = server_state.get('agents', {})
+            # Find Calendar Booking Agent by name
+            for did, agent_info in agents.items():
+                if agent_info.get('name') == 'Calendar Booking Agent':
+                    booking_agent_did = did
+                    break
+        except Exception as e:
+            print(f"⚠️ Could not look up Calendar Booking Agent DID: {e}")
+        
         partner_id = st.text_input(
             "Your Agent ID *",
+            value=booking_agent_did if booking_agent_did else "",
             placeholder="agent-beta-42",
-            help="Your unique agent identifier"
+            help="Your unique agent identifier (auto-populated with Calendar Booking Agent's DID)"
         )
+        
+        if booking_agent_did and partner_id == booking_agent_did:
+            st.caption("✅ Using Calendar Booking Agent's DID")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -691,17 +708,37 @@ def agents_page():
 
 def use_agent_to_book_page():
     """Streamlit UI page for using an agent (via A2A or MCP) to book an invite."""
+    # Back to Dashboard button
+    if st.button("← Back to Dashboard", key="back_to_dashboard_from_book", use_container_width=False):
+        st.query_params.clear()
+        st.rerun()
+    
     st.title("🤝 Use Agent To Book Invite")
     st.markdown("Connect to an agent using their DID and book a meeting via A2A or MCP.")
     
     st.markdown("---")
     
-    # DID Input Section
+    # Look up Calendar Manager Agent (Admin) DID from server state for target
+    admin_agent_did = None
+    try:
+        server_state = get_server_state()
+        agents = server_state.get('agents', {})
+        # Find Calendar Manager Agent by name
+        for did, agent_info in agents.items():
+            if agent_info.get('name') == 'Calendar Manager Agent':
+                admin_agent_did = did
+                break
+    except Exception as e:
+        print(f"⚠️ Could not look up Calendar Manager Agent DID: {e}")
+    
+    # DID Input Section - starts empty, but can use Admin DID as target
     st.subheader("🔐 Agent DID")
     col1, col2 = st.columns([3, 1])
     with col1:
+        # Input starts empty (no auto-population)
         agent_did = st.text_input(
             "Agent Decentralized Identifier (DID)",
+            value="",
             placeholder="did:peer:2...",
             help="Enter the DID of the agent you want to connect to",
             key="agent_did_input",
@@ -709,6 +746,10 @@ def use_agent_to_book_page():
         )
     with col2:
         connect_button = st.button("🔗 Connect", key="connect_did", type="primary", use_container_width=True)
+    
+    # Show suggestion to use Admin DID if input is empty
+    if not agent_did and admin_agent_did:
+        st.info(f"💡 Tip: You can connect to Calendar Manager Agent using DID: `{admin_agent_did[:50]}...`")
     
     if not agent_did:
         st.info("💡 Enter an agent DID to begin booking")
@@ -793,9 +834,11 @@ def use_agent_to_book_page():
         
         st.markdown("---")
         
-        # Initialize chat history in session state
+        # Initialize chat history and context in session state
         if 'a2a_chat_history' not in st.session_state:
             st.session_state.a2a_chat_history = []
+        if 'a2a_context_id' not in st.session_state:
+            st.session_state.a2a_context_id = None
         
         # Display chat history
         st.subheader("💬 Chat")
@@ -898,6 +941,26 @@ Chat enabled: {chat_enabled_a2a}
         )
         
         if user_input_a2a and chat_enabled_a2a:
+            # Get Booking Agent's DID for context injection
+            booking_agent_did_for_chat = None
+            try:
+                server_state = get_server_state()
+                agents = server_state.get('agents', {})
+                # Find Calendar Booking Agent by name
+                for did, agent_info in agents.items():
+                    if agent_info.get('name') == 'Calendar Booking Agent':
+                        booking_agent_did_for_chat = did
+                        break
+            except Exception as e:
+                print(f"⚠️ Could not look up Calendar Booking Agent DID for chat: {e}")
+            
+            # Inject Booking Agent's DID as context in the message
+            # This tells the agent who is making the request
+            enhanced_message = user_input_a2a
+            if booking_agent_did_for_chat:
+                context_prefix = f"[Context: I am the Calendar Booking Agent with DID {booking_agent_did_for_chat}. When booking meetings, use this as the partner_agent_id.]\n\n"
+                enhanced_message = context_prefix + user_input_a2a
+            
             # Add user message to chat history
             st.session_state.a2a_chat_history.append({
                 'role': 'user',
@@ -919,21 +982,29 @@ Chat enabled: {chat_enabled_a2a}
                         nest_asyncio.apply()
                         
                         # Run async A2A client call
+                        # Use stored context_id to maintain conversation continuity
                         async def get_response():
                             return await send_message_to_a2a_agent(
                                 endpoint_url=a2a_endpoint,
-                                message_text=user_input_a2a
+                                message_text=enhanced_message,
+                                context_id=st.session_state.a2a_context_id
                             )
                         
                         # Run the async function
                         loop = asyncio.get_event_loop()
-                        response = loop.run_until_complete(get_response())
-                        st.write(response)
+                        response_text, new_context_id = loop.run_until_complete(get_response())
+                        
+                        # Store the context_id for conversation continuity
+                        if new_context_id:
+                            st.session_state.a2a_context_id = new_context_id
+                            print(f"✅ Stored context_id for conversation: {new_context_id}")
+                        
+                        st.write(response_text)
                         
                         # Add assistant response to chat history
                         st.session_state.a2a_chat_history.append({
                             'role': 'assistant',
-                            'content': response
+                            'content': response_text
                         })
                     except ExceptionGroup as eg:
                         # Handle ExceptionGroup (TaskGroup errors)
@@ -1052,13 +1123,30 @@ Error type: {error_type}
                 duration_map = {"15m": 15, "30m": 30, "45m": 45, "1h": 60, "1.5h": 90, "2h": 120, "3h": 180}
                 duration_minutes = duration_map.get(prefs.preferred_duration, 60)
                 
+                # Use Booking Agent's DID as partner_agent_id (sender), not the target agent_did
+                booking_agent_did_for_booking = None
+                try:
+                    server_state = get_server_state()
+                    agents = server_state.get('agents', {})
+                    # Find Calendar Booking Agent by name
+                    for did, agent_info in agents.items():
+                        if agent_info.get('name') == 'Calendar Booking Agent':
+                            booking_agent_did_for_booking = did
+                            break
+                except Exception as e:
+                    print(f"⚠️ Could not look up Calendar Booking Agent DID: {e}")
+                
+                # Use Booking Agent's DID as the sender (partner_agent_id)
+                # agent_did is the target agent we're connecting to
+                partner_agent_id = booking_agent_did_for_booking if booking_agent_did_for_booking else agent_did
+                
                 preferences = MeetingPreferences(
                     date=date_pref,
                     time=time_pref,
                     duration=duration_minutes,
                     title=meeting_title if meeting_title else "Meeting",
                     description=meeting_description if meeting_description else None,
-                    partner_agent_id=agent_did
+                    partner_agent_id=partner_agent_id
                 )
                 print(f"[UI] ✓ Created MeetingPreferences: {preferences}")
                 
@@ -1221,6 +1309,7 @@ Always prioritize the user's preferences while being flexible to find workable s
         # Clear chat button
         if st.button("🗑️ Clear Chat", key="clear_a2a_chat"):
             st.session_state.a2a_chat_history = []
+            st.session_state.a2a_context_id = None  # Reset context_id when clearing chat
             st.rerun()
         
         st.markdown("---")
@@ -1295,14 +1384,41 @@ Always prioritize the user's preferences while being flexible to find workable s
                     try:
                         import asyncio
                         
-                        # Run async MCP client call
+                        # Get Booking Agent's DID for partner_agent_id
+                        booking_agent_did_for_mcp = None
+                        try:
+                            server_state = get_server_state()
+                            agents = server_state.get('agents', {})
+                            # Find Calendar Booking Agent by name
+                            for did, agent_info in agents.items():
+                                if agent_info.get('name') == 'Calendar Booking Agent':
+                                    booking_agent_did_for_mcp = did
+                                    break
+                        except Exception as e:
+                            print(f"⚠️ Could not look up Calendar Booking Agent DID for MCP: {e}")
+                        
+                        # Run async MCP client call with timeout
+                        import nest_asyncio
+                        nest_asyncio.apply()
+                        
                         async def get_response():
                             async with init_session_from_url(mcp_endpoint) as session:
-                                return await send_message(session, user_input)
+                                return await send_message(session, user_input, partner_agent_id=booking_agent_did_for_mcp)
                         
-                        # Run the async function
-                        # Streamlit runs in a sync context, so asyncio.run() should work
-                        response = asyncio.run(get_response())
+                        # Run the async function with overall timeout to prevent hanging
+                        # Streamlit runs in sync context, so use nest_asyncio and loop.run_until_complete
+                        loop = asyncio.get_event_loop()
+                        try:
+                            response = loop.run_until_complete(
+                                asyncio.wait_for(
+                                    get_response(),
+                                    timeout=60.0  # 60 second overall timeout
+                                )
+                            )
+                        except asyncio.TimeoutError:
+                            response = "Error: The request took too long to process (60s timeout). Please try again."
+                        except Exception as e:
+                            response = f"Error: {str(e)}"
                         st.write(response)
                         
                         # Add assistant response to chat history
@@ -2118,6 +2234,25 @@ def main():
                     help="Require manual confirmation before booking"
                 )
                 
+                automation_level = st.slider(
+                    "Automation Level",
+                    min_value=1,
+                    max_value=5,
+                    value=getattr(st.session_state.preferences, 'automation_level', 3),
+                    step=1,
+                    help="1 = Manual (requires approval), 5 = Fully Automated (agent makes decisions)"
+                )
+                
+                # Display automation level description
+                automation_descriptions = {
+                    1: "🔴 Manual - All decisions require your approval",
+                    2: "🟠 Low - Agent suggests, you decide",
+                    3: "🟡 Medium - Agent decides on routine bookings",
+                    4: "🟢 High - Agent handles most bookings automatically",
+                    5: "🔵 Fully Automated - Agent makes all booking decisions"
+                }
+                st.caption(f"**{automation_descriptions.get(automation_level, 'Unknown level')}**")
+                
                 st.subheader("Partner Preferences")
                 
                 preferred_partners_str = st.text_area(
@@ -2196,6 +2331,7 @@ Examples:
                         max_meetings_per_week=max_per_week,
                         auto_accept_preferred_times=auto_accept,
                         require_confirmation=require_confirm,
+                        automation_level=automation_level,
                         preferred_partners=preferred_partners_list,
                         blocked_partners=blocked_partners_list,
                         min_trust_score=min_trust,
@@ -2232,6 +2368,15 @@ Examples:
         
         st.write(f"**Min Trust Score:** {prefs.min_trust_score:.1f}")
         st.write(f"**Auto-Accept:** {'✅' if prefs.auto_accept_preferred_times else '❌'}")
+        automation_level = getattr(prefs, 'automation_level', 3)
+        automation_descriptions = {
+            1: "🔴 Manual",
+            2: "🟠 Low",
+            3: "🟡 Medium",
+            4: "🟢 High",
+            5: "🔵 Fully Automated"
+        }
+        st.write(f"**Automation Level:** {automation_level}/5 - {automation_descriptions.get(automation_level, 'Unknown')}")
         st.write(f"**Allow New Partners:** {'✅' if prefs.allow_new_partners else '❌'}")
         
         if prefs.instructions:

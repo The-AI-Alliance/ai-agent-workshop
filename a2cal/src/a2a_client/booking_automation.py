@@ -297,24 +297,32 @@ class BookingAutomation:
                     logger.info(f"Turn {turn}: Message preview: {message_to_send[:100]}...")
                     logger.info(f"Turn {turn}: Waiting for A2A response (10s timeout)...")
                     
-                    response = await asyncio.wait_for(
+                    response_text, context_id = await asyncio.wait_for(
                         send_message_to_a2a_agent(
                             endpoint_url=target_agent_endpoint,
-                            message_text=message_to_send
+                            message_text=message_to_send,
+                            context_id=getattr(self, '_target_agent_context_id', None)
                         ),
                         timeout=10.0  # 10 seconds for A2A response
                     )
                     
+                    # Store context_id for conversation continuity across turns
+                    if context_id:
+                        self._target_agent_context_id = context_id
+                        logger.info(f"Turn {turn}: ✅ Stored context_id for conversation: {context_id}")
+                    
                     # Log response details
                     logger.info(f"Turn {turn}: ✅ Response received!")
-                    logger.info(f"Turn {turn}: Response length: {len(response)} characters")
-                    if response:
-                        logger.info(f"Turn {turn}: Response preview: {response[:200]}...")
-                        logger.info(f"Turn {turn}: Response (full): {response}")
+                    logger.info(f"Turn {turn}: Response length: {len(response_text)} characters")
+                    if response_text:
+                        logger.info(f"Turn {turn}: Response preview: {response_text[:200]}...")
+                        logger.info(f"Turn {turn}: Response (full): {response_text}")
                     else:
                         logger.warning(f"Turn {turn}: ⚠️ Response is empty or None!")
-                        logger.warning(f"Turn {turn}: Response type: {type(response)}")
-                        logger.warning(f"Turn {turn}: Response value: {repr(response)}")
+                        logger.warning(f"Turn {turn}: Response type: {type(response_text)}")
+                        logger.warning(f"Turn {turn}: Response value: {repr(response_text)}")
+                    
+                    response = response_text  # Keep for backward compatibility with rest of code
                 except asyncio.TimeoutError:
                     error_msg = f"Turn {turn}: Target agent did not respond within 10 seconds"
                     logger.error(error_msg)

@@ -345,6 +345,7 @@ class BookingPreferences(pydantic.BaseModel):
     # Other preferences
     timezone: str = "UTC"
     allow_back_to_back: bool = False  # Allow meetings with no buffer
+    automation_level: int = 3  # Automation level (1-5): 1=manual, 5=fully automated
     
     # Natural language instructions
     instructions: str = ""  # Human-readable instructions for how the agent should behave
