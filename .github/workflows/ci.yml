@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+    - name: Cache uv dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/uv
+          .venv
+        key: ${{ runner.os }}-uv-${{ matrix.python-version }}-${{ hashFiles('**/uv.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-uv-${{ matrix.python-version }}-
+
+    - name: Install dependencies
+      run: |
+        cd a2cal
+        uv sync
+
+    - name: Check package can be built
+      run: |
+        cd a2cal
+        uv build
+
+    - name: Verify imports work
+      run: |
+        cd a2cal/src
+        PYTHONPATH="$PWD:$PYTHONPATH" uv run python -c "
+        import mmcp.server
+        import mmcp.tools
+        import common.utils
+        import agents.calendar_admin_agent
+        import agents.calendar_booking_agent
+        print('✅ All imports successful')
+        "
+
+    - name: Run tests (if available)
+      run: |
+        cd a2cal
+        if [ -d "tests" ]; then
+          uv run pytest tests/ -v
+        else
+          echo "ℹ️  No tests directory found, skipping tests"
+        fi
+
+    - name: Check code formatting (if black available)
+      run: |
+        cd a2cal
+        if uv run black --version >/dev/null 2>&1; then
+          uv run black --check src/
+        else
+          echo "ℹ️  black not available, skipping format check"
+        fi
+      continue-on-error: true
+
+    - name: Lint code (if ruff available)
+      run: |
+        cd a2cal
+        if uv run ruff --version >/dev/null 2>&1; then
+          uv run ruff check src/
+        else
+          echo "ℹ️  ruff not available, skipping lint"
+        fi
+      continue-on-error: true
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./a2cal
+        file: ./a2cal/Dockerfile
+        push: false
+        tags: a2cal:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Test Docker image
+      run: |
+        docker run --rm a2cal:latest python -c "
+        import sys
+        sys.path.insert(0, '/app/src')
+        import mmcp.server
+        import common.utils
+        print('✅ Docker image imports successful')
+        "
