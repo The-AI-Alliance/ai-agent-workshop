@@ -8,7 +8,7 @@ RUN pip install --no-cache-dir uv
 WORKDIR /app
 
 # Copy dependency files
-COPY pyproject.toml uv.lock* ./
+COPY pyproject.toml uv.lock ./
 
 # Install dependencies into /app/.venv
 RUN uv sync --frozen --no-dev
@@ -36,7 +36,7 @@ COPY --chown=a2cal:a2cal src/ ./src/
 COPY --chown=a2cal:a2cal pyproject.toml ./
 
 # Set Python path to include src directory
-ENV PYTHONPATH=/app/src:$PYTHONPATH \
+ENV PYTHONPATH=/app/src \
     PATH=/app/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     # Database location in mounted volume

@@ -62,7 +62,6 @@ tests/
 
 # Build artifacts
 *.whl
-uv.lock
 
 # OS
 Thumbs.db
