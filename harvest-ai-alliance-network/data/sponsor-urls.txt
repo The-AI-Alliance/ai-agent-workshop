@@ -1,8 +1,6 @@
 https://www.tesla.com/
 https://www.faction.us/
 https://www.agtonomy.com/
-https://toborlife.ai/
-https://thealliance.ai
 https://neo4j.com/
 https://quantea.com/
 http://www.devz.ai/
@@ -34,3 +32,5 @@ https://www.seoulaihub.kr/
 https://english.seoul.go.kr/
 https://www.aica-gj.kr/
 https://www.techquity.ai/
+
+https://toborlife.ai/

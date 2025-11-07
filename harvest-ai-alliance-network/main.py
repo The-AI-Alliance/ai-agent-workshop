@@ -8,7 +8,7 @@ from mcp_agent.app import MCPApp
 from mcp_agent.agents.agent import Agent
 from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIAugmentedLLM
 
-app = MCPApp(name="harvest-ai-alliance-members")
+app = MCPApp(name="harvest-ai-alliance-network")
 
 async def main(mode="member", max_urls=None):
     async with app.run():

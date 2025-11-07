@@ -9,7 +9,6 @@ https://caics.put.poznan.pl/
 https://commoncrawl.org
 https://core42.ai/
 https://datacraft.paris/
-https://domino.ai/
 https://en.huji.ac.il/
 https://ethz.ch/en.html
 https://genaifund.ai
@@ -120,3 +119,5 @@ https://www.wonikrobotics.com/en
 https://www.zenteiq.ai
 https://www5.usp.br
 https://zilliz.com/
+
+https://domino.ai/
