@@ -172,7 +172,9 @@ async def send_message_to_a2a_agent(
     expected_card_url = f"{endpoint_url.rstrip('/')}/.well-known/agent-card.json"
     logger.info(f"📋 Agent card will be fetched from: {expected_card_url}")
     
-    async with httpx.AsyncClient(timeout=60.0) as httpx_client:
+    # Use 12s timeout (slightly more than 10s to allow for network overhead)
+    # This ensures asyncio.wait_for(10s) can properly cancel the operation
+    async with httpx.AsyncClient(timeout=12.0) as httpx_client:
         card_resolver = A2ACardResolver(httpx_client, endpoint_url)
         agent_card = await card_resolver.get_agent_card()
         logger.info(f"✅ Agent card fetched: {agent_card.name if hasattr(agent_card, 'name') else 'unknown'}")
@@ -228,25 +230,29 @@ async def send_message_to_a2a_agent(
             logger.info("="*70)
             
             chunk_count = 0
-            async for chunk in response_stream:
-                # Store raw chunk for debugging
-                try:
-                    if hasattr(chunk, 'model_dump'):
+            try:
+                async for chunk in response_stream:
+                    # Allow cancellation point - check if we've been cancelled
+                    await asyncio.sleep(0)  # Yield to event loop for cancellation
+                    
+                    # Store raw chunk for debugging
+                    try:
+                        if hasattr(chunk, 'model_dump'):
+                            raw_chunks_debug.append({
+                                'type': type(chunk).__name__,
+                                'data': chunk.model_dump()
+                            })
+                        else:
+                            raw_chunks_debug.append({
+                                'type': type(chunk).__name__,
+                                'data': str(chunk)[:500]
+                            })
+                    except:
                         raw_chunks_debug.append({
                             'type': type(chunk).__name__,
-                            'data': chunk.model_dump()
+                            'data': 'Could not serialize'
                         })
-                    else:
-                        raw_chunks_debug.append({
-                            'type': type(chunk).__name__,
-                            'data': str(chunk)[:500]
-                        })
-                except:
-                    raw_chunks_debug.append({
-                        'type': type(chunk).__name__,
-                        'data': 'Could not serialize'
-                    })
-                chunk_count += 1
+                    chunk_count += 1
                 
                 # Print to stderr so it shows in Streamlit
                 import sys
@@ -638,6 +644,19 @@ async def send_message_to_a2a_agent(
                     except Exception as e:
                         logger.error(f"Error parsing chunk directly: {e}")
                         print(f"❌ Error parsing chunk: {e}", file=sys.stderr)
+            except asyncio.CancelledError:
+                logger.warning("⚠️ Streaming cancelled due to timeout")
+                logger.info(f"📊 Partial response captured: {len(response_text)} characters")
+                if response_text:
+                    logger.info(f"📝 Partial response: {response_text[:200]}...")
+                # Re-raise to allow asyncio.wait_for to handle it properly
+                raise
+            except Exception as e:
+                logger.error(f"❌ Error during streaming: {e}", exc_info=True)
+                # If we have partial response, log it
+                if response_text:
+                    logger.info(f"📊 Partial response before error: {len(response_text)} characters")
+                raise
         else:
             # Use non-streaming
             request = SendMessageRequest(

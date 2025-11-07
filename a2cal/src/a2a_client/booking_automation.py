@@ -11,6 +11,8 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from a2a_client.client import send_message_to_a2a_agent
+ 
 
 # Configure dedicated file logger for booking automation
 booking_log_file = Path("/tmp/booking_automation.log")
@@ -155,21 +157,7 @@ class BookingAutomation:
         logger.info(f"Using BookingAgent: {booking_agent.agent_name}")
         logger.info(f"✓ Logger statements executed")
         
-        # Import here to avoid circular dependencies
-        logger.info(f"Importing send_message_to_a2a_agent...")
-        try:
-            from a2a_client.client import send_message_to_a2a_agent
-            logger.info(f"✓ Successfully imported send_message_to_a2a_agent")
-        except ImportError as e:
-            logger.info(f"❌ Failed to import: {e}")
-            logger.error(f"Failed to import A2A client: {e}")
-            return {
-                'success': False,
-                'message': f'A2A client not available: {str(e)}',
-                'conversation_history': [],
-                'booking_details': None
-            }
-        
+       
         # Build the context for the booking agent
         logger.info(f"Building booking context...")
         booking_context = self._build_booking_context(preferences, target_agent_did)
@@ -303,7 +291,12 @@ class BookingAutomation:
                 
                 # Add timeout to prevent hanging on A2A communication
                 try:
+                    logger.info(f"Turn {turn}: Calling send_message_to_a2a_agent...")
+                    logger.info(f"Turn {turn}: Endpoint: {target_agent_endpoint}")
+                    logger.info(f"Turn {turn}: Message length: {len(message_to_send)} chars")
+                    logger.info(f"Turn {turn}: Message preview: {message_to_send[:100]}...")
                     logger.info(f"Turn {turn}: Waiting for A2A response (10s timeout)...")
+                    
                     response = await asyncio.wait_for(
                         send_message_to_a2a_agent(
                             endpoint_url=target_agent_endpoint,
@@ -311,8 +304,17 @@ class BookingAutomation:
                         ),
                         timeout=10.0  # 10 seconds for A2A response
                     )
-                    logger.info(f"Turn {turn}: Target agent responded: {response[:200]}...")
-                    logger.info(f"Turn {turn}: Target agent responded: {response[:200]}...")
+                    
+                    # Log response details
+                    logger.info(f"Turn {turn}: ✅ Response received!")
+                    logger.info(f"Turn {turn}: Response length: {len(response)} characters")
+                    if response:
+                        logger.info(f"Turn {turn}: Response preview: {response[:200]}...")
+                        logger.info(f"Turn {turn}: Response (full): {response}")
+                    else:
+                        logger.warning(f"Turn {turn}: ⚠️ Response is empty or None!")
+                        logger.warning(f"Turn {turn}: Response type: {type(response)}")
+                        logger.warning(f"Turn {turn}: Response value: {repr(response)}")
                 except asyncio.TimeoutError:
                     error_msg = f"Turn {turn}: Target agent did not respond within 10 seconds"
                     logger.error(error_msg)
@@ -350,19 +352,26 @@ class BookingAutomation:
                     }
                 
                 # Record conversation turn
+                logger.info(f"Turn {turn}: Recording conversation turn...")
+                logger.info(f"Turn {turn}: Message sent length: {len(message_to_send)}")
+                logger.info(f"Turn {turn}: Response received length: {len(response) if response else 0}")
+                
                 conversation_turn = ConversationTurn(
                     turn_number=turn,
                     message_sent=message_to_send,
-                    response_received=response,
+                    response_received=response or "",  # Ensure we always have a string
                     timestamp=datetime.now(),
                     metadata={
                         'booking_agent_analysis': str(booking_agent_response)[:500]
                     }
                 )
                 self.conversation_history.append(conversation_turn)
+                logger.info(f"Turn {turn}: ✅ Conversation turn recorded (history length: {len(self.conversation_history)})")
                 
                 # Update conversation context with the new exchange
-                conversation_context += f"\n\nTurn {turn}:\nYou sent: {message_to_send}\nTarget agent responded: {response}"
+                response_text = response if response else "[No response received]"
+                conversation_context += f"\n\nTurn {turn}:\nYou sent: {message_to_send}\nTarget agent responded: {response_text}"
+                logger.info(f"Turn {turn}: ✅ Conversation context updated (context length: {len(conversation_context)} chars)")
                 
                 if progress_callback:
                     await progress_callback(
