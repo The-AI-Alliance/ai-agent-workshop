@@ -312,19 +312,22 @@ async def send_message_to_a2a_agent(
                 except Exception as e:
                     logger.error(f"❌ Could not convert chunk to dict: {e}")
                 
-                # Extract result from the dict
-                if chunk_dict:
-                    if 'data' in chunk_dict and isinstance(chunk_dict['data'], dict):
-                        if 'result' in chunk_dict['data']:
-                            result_data = chunk_dict['data']['result']
-                            logger.info(f"✅ Got result_data from chunk_dict['data']['result']")
-                    elif 'result' in chunk_dict:
+                # Extract result from the chunk
+                # Priority 1: Try chunk.result directly (most common for SendStreamingMessageResponse)
+                if not result_data and hasattr(chunk, 'result'):
+                    result_data = chunk.result
+                    logger.info(f"✅ Got result_data from chunk.result (direct access)")
+                    print(f"✅ Got result_data from chunk.result", file=sys.stderr)
+                
+                # Priority 2: Try chunk_dict['result'] (from model_dump)
+                if not result_data and chunk_dict:
+                    if 'result' in chunk_dict:
                         result_data = chunk_dict['result']
                         logger.info(f"✅ Got result_data from chunk_dict['result']")
+                        print(f"✅ Got result_data from chunk_dict['result']", file=sys.stderr)
                 
-                # Old approach as fallback
+                # Priority 3: Try chunk.data.result (nested structure)
                 if not result_data:
-                    # Try to get result from chunk.data.result (as seen in debug file)
                     if hasattr(chunk, 'data'):
                         logger.info(f"🔍 chunk.data type: {type(chunk.data)}")
                         logger.info(f"🔍 chunk.data has 'result': {hasattr(chunk.data, 'result')}")
@@ -335,22 +338,44 @@ async def send_message_to_a2a_agent(
                         elif isinstance(chunk.data, dict) and 'result' in chunk.data:
                             result_data = chunk.data['result']
                             logger.info(f"✅ Got result_data from chunk.data['result']")
-                    
-                    # Fallback: try chunk.result directly
-                    if not result_data and hasattr(chunk, 'result'):
-                        result_data = chunk.result
-                        logger.info(f"✅ Got result_data from chunk.result")
-                    
-                    # Fallback: try dict access
-                    if not result_data and isinstance(chunk, dict) and 'result' in chunk:
-                        result_data = chunk['result']
-                        logger.info(f"✅ Got result_data from chunk['result']")
+                
+                # Priority 4: Try chunk_dict['data']['result'] (nested dict)
+                if not result_data and chunk_dict:
+                    if 'data' in chunk_dict and isinstance(chunk_dict['data'], dict):
+                        if 'result' in chunk_dict['data']:
+                            result_data = chunk_dict['data']['result']
+                            logger.info(f"✅ Got result_data from chunk_dict['data']['result']")
+                
+                # Priority 5: Try dict access directly
+                if not result_data and isinstance(chunk, dict) and 'result' in chunk:
+                    result_data = chunk['result']
+                    logger.info(f"✅ Got result_data from chunk['result'] (direct dict)")
                 
                 if result_data:
                     logger.info(f"🎯 result_data type: {type(result_data)}")
                     logger.info(f"🎯 result_data has 'kind': {hasattr(result_data, 'kind')}")
+                    print(f"🎯 result_data type: {type(result_data)}", file=sys.stderr)
+                    print(f"🎯 result_data has 'kind': {hasattr(result_data, 'kind')}", file=sys.stderr)
+                    # Try to get kind value for debugging
+                    try:
+                        if isinstance(result_data, dict):
+                            kind_val = result_data.get('kind', 'NOT_FOUND')
+                        else:
+                            kind_val = getattr(result_data, 'kind', 'NOT_FOUND')
+                        logger.info(f"🎯 result_data.kind = {kind_val}")
+                        print(f"🎯 result_data.kind = {kind_val}", file=sys.stderr)
+                    except:
+                        pass
                 else:
                     logger.warning(f"❌ Could not extract result_data from chunk!")
+                    print(f"❌ Could not extract result_data from chunk!", file=sys.stderr)
+                    # Debug: show what chunk actually has
+                    if chunk_dict:
+                        logger.warning(f"🔍 chunk_dict keys: {list(chunk_dict.keys())}")
+                        print(f"🔍 chunk_dict keys: {list(chunk_dict.keys())}", file=sys.stderr)
+                    if hasattr(chunk, '__dict__'):
+                        logger.warning(f"🔍 chunk attributes: {list(chunk.__dict__.keys())}")
+                        print(f"🔍 chunk attributes: {list(chunk.__dict__.keys())}", file=sys.stderr)
                 
                 # Flag to skip old parsing logic if we processed result_data
                 processed_result_data = False
@@ -370,29 +395,62 @@ async def send_message_to_a2a_agent(
                         logger.info(f"   📦 Processing artifact-update")
                         
                         artifact = result_data.get('artifact') if isinstance(result_data, dict) else getattr(result_data, 'artifact', None)
+                        print(f"   🔍 Artifact extracted: {artifact is not None}, type: {type(artifact)}", file=sys.stderr)
+                        logger.info(f"   🔍 Artifact extracted: {artifact is not None}, type: {type(artifact)}")
                         
                         if artifact:
                             logger.info(f"   Found artifact: {type(artifact)}")
+                            print(f"   ✅ Found artifact: {type(artifact)}", file=sys.stderr)
+                            
+                            # Debug: show artifact structure
+                            if isinstance(artifact, dict):
+                                logger.info(f"   🔍 Artifact keys: {list(artifact.keys())}")
+                                print(f"   🔍 Artifact keys: {list(artifact.keys())}", file=sys.stderr)
+                            elif hasattr(artifact, '__dict__'):
+                                logger.info(f"   🔍 Artifact attributes: {list(artifact.__dict__.keys())}")
+                                print(f"   🔍 Artifact attributes: {list(artifact.__dict__.keys())}", file=sys.stderr)
+                            
                             parts = artifact.get('parts') if isinstance(artifact, dict) else getattr(artifact, 'parts', None)
+                            print(f"   🔍 Parts extracted: {parts is not None}, type: {type(parts)}, length: {len(parts) if parts else 0}", file=sys.stderr)
+                            logger.info(f"   🔍 Parts extracted: {parts is not None}, type: {type(parts)}, length: {len(parts) if parts else 0}")
                             
                             if parts:
                                 print(f"   Found {len(parts)} parts in artifact", file=sys.stderr)
                                 logger.info(f"   Found {len(parts)} parts in artifact")
                                 
                                 for i, part in enumerate(parts):
+                                    # Debug part structure
+                                    print(f"   🔍 Part {i} type: {type(part)}", file=sys.stderr)
+                                    if isinstance(part, dict):
+                                        print(f"   🔍 Part {i} keys: {list(part.keys())}", file=sys.stderr)
+                                    elif hasattr(part, '__dict__'):
+                                        print(f"   🔍 Part {i} attributes: {list(part.__dict__.keys())}", file=sys.stderr)
+                                    
                                     part_kind = part.get('kind') if isinstance(part, dict) else getattr(part, 'kind', None)
                                     logger.info(f"   Part {i} kind: {part_kind}")
-                                    print(f"   Part {i}: {part}", file=sys.stderr)
+                                    print(f"   Part {i} kind: {part_kind}", file=sys.stderr)
+                                    print(f"   Part {i} full: {part}", file=sys.stderr)
                                     
                                     # Handle kind="text" - extract from 'text' field
                                     if part_kind == 'text':
                                         text_value = part.get('text') if isinstance(part, dict) else getattr(part, 'text', None)
+                                        print(f"   🔍 Part {i} text_value: {text_value is not None}, value: {text_value[:100] if text_value else 'None'}...", file=sys.stderr)
+                                        logger.info(f"   🔍 Part {i} text_value extracted: {text_value is not None}")
+                                        
                                         if text_value:
                                             response_text += text_value
                                             print(f"   ✅ Extracted TEXT from part {i}: {text_value[:100]}...", file=sys.stderr)
                                             logger.info(f"   ✅ Extracted TEXT from part {i}: {len(text_value)} chars")
                                         else:
                                             logger.warning(f"   ⚠️ Part {i} kind='text' but no text value found")
+                                            print(f"   ⚠️ Part {i} kind='text' but no text value found", file=sys.stderr)
+                                            # Debug: show what part actually contains
+                                            if isinstance(part, dict):
+                                                logger.warning(f"   🔍 Part {i} dict contents: {part}")
+                                                print(f"   🔍 Part {i} dict contents: {part}", file=sys.stderr)
+                                            else:
+                                                logger.warning(f"   🔍 Part {i} object: {part}")
+                                                print(f"   🔍 Part {i} object: {part}", file=sys.stderr)
                                     
                                     # Handle kind="data" - extract from 'data.question' or 'data.message' field
                                     elif part_kind == 'data':
