@@ -87,7 +87,6 @@ dmypy.json
 
 # Celery
 celerybeat-schedule
-celerybeat.pid
 
 # SageMath parsed files
 *.sage.py
@@ -113,7 +112,6 @@ __pypackages__/
 
 # Celery stuff
 celerybeat-schedule
-celerybeat.pid
 
 # Sphinx documentation
 docs/_build/

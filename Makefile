@@ -20,7 +20,7 @@ SHELL := /bin/bash
 SUBMODULES_DIR := submodules
 A2A_DIR        := $(SUBMODULES_DIR)/a2a-inspector
 FORGE_DIR      := $(SUBMODULES_DIR)/mcp-context-forge
-CAL_DIR        := calendar-agent
+CAL_DIR        := a2cal
 PIDS_FILE      := .run-pids
 
 # ---- Defaults (safe) ----
@@ -36,8 +36,8 @@ help:
 	@echo "  install-mcp-inspector    npm install @modelcontextprotocol/inspector"
 	@echo "  run-mcp-inspector        Launch MCP Inspector via npx"
 	@echo "  run-a2a-inspector        chmod +x and run a2a-inspector/scripts/run.sh"
-	@echo "  install-calendar-agent   Create venv and install Python deps in ./calendar-agent"
-	@echo "  run-calendar-agent       Activate venv and attempt to run calendar agent"
+	@echo "  install-calendar-agent   Install a2cal using its Makefile (uv-based)"
+	@echo "  run-calendar-agent       Run a2cal using its Makefile"
 	@echo "  run-context-forge        Create venv (if missing) and run ContextForge gateway"
 	@echo "  prepare-a2a             Prepare a2a download" 
 	@echo "  clean                    Remove common artifacts"
@@ -71,24 +71,9 @@ run:
 	@echo "📝 Service PIDs will be stored in $(PIDS_FILE)"
 	@echo ""
 	@echo "▶️  Starting Calendar Agent..."
-	@cd "$(CAL_DIR)" && { \
-		if [ ! -d ".venv" ]; then \
-			echo "   ⚠️  .venv missing; running install-calendar-agent first..."; \
-			$(MAKE) -s install-calendar-agent; \
-		fi; \
-		source .venv/bin/activate; \
-		if [ -f "main.py" ]; then \
-			python main.py > /tmp/calendar-agent.log 2>&1 & \
-			echo $$! >> ../$(PIDS_FILE); \
-			echo "   ✅ Calendar Agent started (PID: $$!)"; \
-		elif [ -f "app.py" ]; then \
-			python app.py > /tmp/calendar-agent.log 2>&1 & \
-			echo $$! >> ../$(PIDS_FILE); \
-			echo "   ✅ Calendar Agent started (PID: $$!)"; \
-		else \
-			echo "   ❌ No main.py or app.py found"; \
-		fi; \
-	} || true
+	@$(MAKE) -C $(CAL_DIR) run > /tmp/calendar-agent.log 2>&1 & \
+		echo $$! >> $(PIDS_FILE); \
+		echo "   ✅ Calendar Agent started (PID: $$!)"
 	@echo ""
 	@echo "▶️  Starting Context Forge Gateway..."
 	@cd "$(FORGE_DIR)" && { \
@@ -101,7 +86,7 @@ run:
 			PLATFORM_ADMIN_EMAIL=admin@example.com \
 			PLATFORM_ADMIN_PASSWORD=changeme \
 			PLATFORM_ADMIN_FULL_NAME="Platform Administrator" \
-			uvx --from mcp-contextforge-gateway mcpgateway --host 0.0.0.0 --port 4444 > /tmp/context-forge.log 2>&1 & \
+			uvx --from mcp-contextforge-gateway mcpgateway --host 0.0.0.0 --port 4445 > /tmp/context-forge.log 2>&1 & \
 			echo $$! >> ../$(PIDS_FILE); \
 			echo "   ✅ Context Forge started (PID: $$!)"; \
 		else \
@@ -113,7 +98,7 @@ run:
 			PLATFORM_ADMIN_EMAIL=admin@example.com \
 			PLATFORM_ADMIN_PASSWORD=changeme \
 			PLATFORM_ADMIN_FULL_NAME="Platform Administrator" \
-			mcpgateway --host 0.0.0.0 --port 4444 > /tmp/context-forge.log 2>&1 & \
+			mcpgateway --host 0.0.0.0 --port 4445 > /tmp/context-forge.log 2>&1 & \
 			echo $$! >> ../$(PIDS_FILE); \
 			echo "   ✅ Context Forge started (PID: $$!)"; \
 		fi; \
@@ -139,7 +124,7 @@ run:
 	@echo ""
 	@echo "📊 Services running:"
 	@echo "   • Calendar Agent: http://localhost:8000"
-	@echo "   • Context Forge: http://localhost:4444"
+	@echo "   • Context Forge: http://localhost:4445"
 	@echo "   • A2A Inspector: http://127.0.0.1:5001"
 	@echo "   • MCP Inspector: (check logs at /tmp/mcp-inspector.log)"
 	@echo ""
@@ -243,7 +228,7 @@ run-context-forge context-forge:
 			PLATFORM_ADMIN_PASSWORD=changeme \
 			PLUGINS_ENABLED=true \
 			PLATFORM_ADMIN_FULL_NAME="Platform Administrator" \
-			uvx --from mcp-contextforge-gateway mcpgateway --host 0.0.0.0 --port 4444; \
+			uvx --from mcp-contextforge-gateway mcpgateway --host 0.0.0.0 --port 4445; \
 		else \
 			echo 'ℹ️ uvx not found; falling back to pip installation...'; \
 			pip install --upgrade pip >/dev/null; \
@@ -256,56 +241,22 @@ run-context-forge context-forge:
 			PLUGINS_ENABLED=true \
 			PLATFORM_ADMIN_PASSWORD=changeme \
 			PLATFORM_ADMIN_FULL_NAME="Platform Administrator" \
-			mcpgateway --host 0.0.0.0 --port 4444; \
+			mcpgateway --host 0.0.0.0 --port 4445; \
 		fi; \
 	}
 
 # --------------------------------------------------------------------
 # 5) Calendar Agent (Python)
 # --------------------------------------------------------------------
-# Creates venv and installs deps from poetry.lock, requirements.txt, or pyproject.toml
+# Delegates to a2cal/Makefile for installation and running
 install-calendar-agent calendar-agent:
-	@echo "🐍 Setting up calendar-agent environment..."
-	cd "$(CAL_DIR)" && { \
-		python3 -m venv .venv; \
-		source .venv/bin/activate; \
-		if [ -f "poetry.lock" ]; then \
-			echo "📦 Installing with Poetry..."; \
-			pip install --upgrade pip >/dev/null; \
-			pip install poetry >/dev/null; \
-			poetry install; \
-		elif [ -f "requirements.txt" ]; then \
-			echo "📦 Installing from requirements.txt..."; \
-			pip install --upgrade pip >/dev/null; \
-			pip install -r requirements.txt; \
-		elif [ -f "pyproject.toml" ]; then \
-			echo "📦 Installing from pyproject.toml (PEP 517/518 build)..."; \
-			pip install --upgrade pip build >/dev/null; \
-			pip install -e .; \
-		else \
-			echo "⚠️  No recognized dependency file found."; \
-		fi; \
-	}
+	@echo "🐍 Installing a2cal (delegating to a2cal/Makefile)..."
+	$(MAKE) -C $(CAL_DIR) install
 
-# Tries a few common entry points; adjust to your app as needed
+# Delegates to a2cal/Makefile for running
 run-calendar-agent:
-	@echo "▶️ Running calendar-agent..."
-	cd "$(CAL_DIR)" && { \
-		if [ ! -d ".venv" ]; then \
-			echo "ℹ️ .venv missing; running install-calendar-agent first..."; \
-			$(MAKE) -s install-calendar-agent; \
-		fi; \
-		source .venv/bin/activate; \
-		if [ -f "main.py" ]; then \
-			python main.py; \
-		elif [ -f "app.py" ]; then \
-			python app.py; \
-		elif [ -d "src" ]; then \
-			python -m src || { echo '❓ Please customize run-calendar-agent target for your app.'; exit 1; }; \
-		else \
-			echo '❓ Please customize run-calendar-agent target for your app.'; exit 1; \
-		fi; \
-	}
+	@echo "▶️ Running a2cal (delegating to a2cal/Makefile)..."
+	$(MAKE) -C $(CAL_DIR) run
 
 # --------------------------------------------------------------------
 # Clean
@@ -313,5 +264,7 @@ run-calendar-agent:
 clean:
 	@echo "🧹 Cleaning common artifacts..."
 	rm -rf node_modules
-	[ -d "$(CAL_DIR)" ]  && (cd "$(CAL_DIR)"  && rm -rf .venv __pycache__ *.egg-info build dist) || true
+	@echo "🧹 Cleaning a2cal (delegating to a2cal/Makefile)..."
+	$(MAKE) -C $(CAL_DIR) clean || true
+	@echo "🧹 Cleaning context-forge..."
 	[ -d "$(FORGE_DIR)" ] && (cd "$(FORGE_DIR)" && rm -rf .venv __pycache__ *.egg-info build dist) || true

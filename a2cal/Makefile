@@ -33,7 +33,7 @@ help:
 	@echo "Services:"
 	@echo "  • Streamlit UI: http://localhost:8501"
 	@echo "  • MCP Server: http://localhost:8000/mcp"
-	@echo "  • A2A Server: http://localhost:10000"
+	@echo "  • A2A Server: http://localhost:8000/agent"
 	@echo ""
 
 # ---- Installation ----
@@ -65,10 +65,10 @@ run:
 	fi
 	@echo "📋 Starting services..."
 	@echo "   • MCP Server: http://localhost:8000/mcp"
-	@echo "   • A2A Server: http://localhost:10000"
+	@echo "   • A2A Server: http://localhost:8000/agent"
 	@echo "   • Streamlit UI: http://localhost:8501"
 	@echo ""
-	cd src && PYTHONPATH="$(CURDIR)/src:$$PYTHONPATH" uv run python main.py
+	@PYTHONPATH="$(CURDIR)/src:$$PYTHONPATH" uv run python src/main.py
 
 # ---- Development ----
 dev: run
