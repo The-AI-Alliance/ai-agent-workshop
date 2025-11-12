@@ -66,7 +66,6 @@ Features:
 - perform cleanup and extract text from HTML / PDF documents
 - index them into a vector database with embeddings
 - And query the documents using LLMs (running locally or remotely)
-
 - And expose the RAG functionality as an MCP server.
 
 [See full README](allycat/README.md)
