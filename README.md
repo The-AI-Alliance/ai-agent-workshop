@@ -9,6 +9,7 @@ This repo contains the example code for several of the workshops that will be he
 
 ## Workshops
 
+- **[Allycat](allycat/)** - Chat with a website using LLM.  And expose the functionality via MCP so other tools / agents can use it.
 - **[Harvest AI Alliance Member Data Agent](./harvest-ai-alliance-members/)** - Web scraping agent that creates summaries for each company in the AI Alliance
 - **[Match Attendees Agent](./match-attendees/)** - Agent that finds synergies between conference attendees and AI Alliance members
 - **[A2cal - Calendar Agent with A2A Support](./a2cal/)** - Autonomous AI agent system for calendar management and meeting coordination between AI agents using the Agent-to-Agent (A2A) protocol
@@ -22,8 +23,7 @@ This repo contains the example code for several of the workshops that will be he
    - Git
    - Python 3.8+
    - [uv](https://github.com/astral-sh/uv) - Fast Python package installer and resolver
-3. **API Keys** (depending on which workshop you're running):
-   - OpenAI API key for [OpenAI](https://platform.openai.com/api-keys) (for Harvest and Match workshops)
+3. **API Keys** - depending on which workshop you're running.  Check setup instructions for workshops.
 
 ### Quick Setup
 
@@ -34,11 +34,14 @@ This repo contains the example code for several of the workshops that will be he
    ```
 
 2. **Navigate to a specific workshop:**
+   - For allycat: `cd allycat`  
    - For Harvest Agent: `cd harvest-ai-alliance-members`
    - For Match Attendees: `cd match-attendees`
    - For A2cal Calendar Agent: `cd a2cal`
 
-3. **Install dependencies:**
+3. And follow instructions specific to the workshop.  See below.
+
+<!-- 3. **Install dependencies:**
    ```bash
    uv init  # If not already initialized
    uv sync  # Install dependencies from pyproject.toml
@@ -51,11 +54,24 @@ This repo contains the example code for several of the workshops that will be he
 5. **Run the workshop:**
    ```bash
    uv run main.py
-   ```
+   ``` -->
 
-## Workshop Details
 
-### Harvest AI Alliance Member Data Agent
+## Workshop 1:  Allycat - Chat with a website using LLMs
+
+Allycat implements **end-to-end RAG pipeline** for website content.
+
+Features:
+- crawl a website content
+- perform cleanup and extract text from HTML / PDF documents
+- index them into a vector database with embeddings
+- And query the documents using LLMs (running locally or remotely)
+
+- And expose the RAG functionality as an MCP server.
+
+[See full README](allycat/README.md)
+
+## Workshop 2: Harvest AI Alliance Member Data Agent
 
 Web scraping agent that creates summaries for each company in the AI Alliance. It uses a master list of AI Alliance company URLs and scrapes each website to summarize what they do.
 
@@ -66,7 +82,7 @@ Web scraping agent that creates summaries for each company in the AI Alliance. I
 
 [See full README](./harvest-ai-alliance-members/README.md)
 
-### Match Attendees Agent
+## Workshop 3: Match Attendees Agent
 
 Agent that uses summarized AI Alliance member data and attendee data to find synergies and describe/score those synergies.
 
@@ -77,7 +93,7 @@ Agent that uses summarized AI Alliance member data and attendee data to find syn
 
 [See full README](./match-attendees/README.md)
 
-### A2cal - Calendar Agent with A2A Support
+## Workshop 4: A2cal - Calendar Agent with A2A Support
 
 Autonomous AI agent system for calendar management and meeting coordination between AI agents. Enables agents to discover each other, propose meetings, negotiate schedules, and manage calendar events through standardized protocols.
 
